@@ -1,7 +1,9 @@
 # Add any directories, files, or patterns you don't want to be tracked by version control
+paper/
 .ipynb_checkpoints
 *.pkl
 *.csv
 *.tsv
 *.txt
 *.zip
+.idea
