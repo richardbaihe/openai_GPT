@@ -1,7 +1,11 @@
 # Add any directories, files, or patterns you don't want to be tracked by version control
 .ipynb_checkpoints
+.idea
+paper
+__pycache__
 *.pkl
 *.csv
 *.tsv
 *.txt
 *.zip
+*.model
