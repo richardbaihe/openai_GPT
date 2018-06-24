@@ -1,8 +1,8 @@
 import re
-import ftfy
 import json
-import spacy
-
+import sys
+reload(sys)
+sys.setdefaultencoding('utf-8')
 from tqdm import tqdm
 
 def get_pairs(word):
@@ -37,57 +37,10 @@ class TextEncoder(object):
     mostly a wrapper for a public python bpe tokenizer
     """
 
-    def __init__(self, encoder_path, bpe_path):
-        self.nlp = spacy.load('en', disable=['parser', 'tagger', 'ner', 'textcat'])
+    def __init__(self, encoder_path):
         self.encoder = json.load(open(encoder_path))
         self.decoder = {v:k for k,v in self.encoder.items()}
-        merges = open(bpe_path, encoding='utf-8').read().split('\n')[1:-1]
-        merges = [tuple(merge.split()) for merge in merges]
-        self.bpe_ranks = dict(zip(merges, range(len(merges))))
         self.cache = {}
-
-    def bpe(self, token):
-        word = tuple(token[:-1]) + ( token[-1] + '</w>',)
-        if token in self.cache:
-            return self.cache[token]
-        pairs = get_pairs(word)
-
-        if not pairs:
-            return token+'</w>'
-
-        while True:
-            bigram = min(pairs, key = lambda pair: self.bpe_ranks.get(pair, float('inf')))
-            if bigram not in self.bpe_ranks:
-                break
-            first, second = bigram
-            new_word = []
-            i = 0
-            while i < len(word):
-                try:
-                    j = word.index(first, i)
-                    new_word.extend(word[i:j])
-                    i = j
-                except:
-                    new_word.extend(word[i:])
-                    break
-
-                if word[i] == first and i < len(word)-1 and word[i+1] == second:
-                    new_word.append(first+second)
-                    i += 2
-                else:
-                    new_word.append(word[i])
-                    i += 1
-            new_word = tuple(new_word)
-            word = new_word
-            if len(word) == 1:
-                break
-            else:
-                pairs = get_pairs(word)
-        word = ' '.join(word)
-        if word == '\n  </w>':
-            word = '\n</w>'
-        self.cache[token] = word
-        return word
 
     def encode(self, texts, verbose=True):
         texts_tokens = []

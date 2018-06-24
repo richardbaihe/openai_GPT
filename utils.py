@@ -11,16 +11,13 @@ from tensorflow.python.framework import function
 from tqdm import tqdm
 from functools import partial
 
-def encode_dataset(*splits, encoder):
-    encoded_splits = []
-    for split in splits[0]:
-        fields = []
-        for field in split:
-            if isinstance(field[0], str):
-                field = encoder.encode(field)
-            fields.append(field)
-        encoded_splits.append(fields)
-    return encoded_splits
+def encode_dataset(*fields, encoder):
+    fields = []
+    for field in fields[0]:
+        if isinstance(field[0], str):
+            field = encoder.encode(field)
+        fields.append(field)
+    return fields
 
 def stsb_label_encoding(labels, nclass=6):
     """

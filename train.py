@@ -14,7 +14,7 @@ from sklearn.utils import shuffle
 from sklearn.metrics import accuracy_score
 
 from opt import adam, warmup_cosine, warmup_linear, warmup_constant
-from datasets import rocstories
+from datasets import atec
 from analysis import rocstories as rocstories_analysis
 from text_utils import TextEncoder
 from utils import encode_dataset, flatten, iter_data, find_trainable_variables, get_ema_vars, convert_gradient_to_tensor, shape_list, ResultLogger, assign_to_gpu, average_grads, make_path
@@ -227,15 +227,14 @@ def mgpu_predict(*xs):
     ops = [tf.concat(op, 0) for op in zip(*gpu_ops)]
     return ops
 
-def transform_roc(X1, X2, X3):
+def transform_roc(X1, X2):
     n_batch = len(X1)
     xmb = np.zeros((n_batch, 2, n_ctx, 2), dtype=np.int32)
     mmb = np.zeros((n_batch, 2, n_ctx), dtype=np.float32)
     start = encoder['_start_']
-    delimiter = encoder['_delimiter_']
-    for i, (x1, x2, x3), in enumerate(zip(X1, X2, X3)):
-        x12 = [start]+x1[:max_len]+[delimiter]+x2[:max_len]+[clf_token]
-        x13 = [start]+x1[:max_len]+[delimiter]+x3[:max_len]+[clf_token]
+    for i, (x1, x2), in enumerate(zip(X1, X2)):
+        x12 = [start]+x1[:max_len]+[clf_token]
+        x13 = [start]+x2[:max_len]+[clf_token]
         l12 = len(x12)
         l13 = len(x13)
         xmb[i, 0, :l12, 0] = x12
@@ -334,10 +333,10 @@ if __name__ == '__main__':
     parser.add_argument('--max_grad_norm', type=int, default=1)
     parser.add_argument('--lr', type=float, default=6.25e-5)
     parser.add_argument('--lr_warmup', type=float, default=0.002)
-    parser.add_argument('--n_ctx', type=int, default=512)
-    parser.add_argument('--n_embd', type=int, default=768)
-    parser.add_argument('--n_head', type=int, default=12)
-    parser.add_argument('--n_layer', type=int, default=12)
+    parser.add_argument('--n_ctx', type=int, default=25)
+    parser.add_argument('--n_embd', type=int, default=384)
+    parser.add_argument('--n_head', type=int, default=6)
+    parser.add_argument('--n_layer', type=int, default=3)
     parser.add_argument('--embd_pdrop', type=float, default=0.1)
     parser.add_argument('--attn_pdrop', type=float, default=0.1)
     parser.add_argument('--resid_pdrop', type=float, default=0.1)
@@ -371,11 +370,18 @@ if __name__ == '__main__':
     encoder = text_encoder.encoder
     n_vocab = len(text_encoder.encoder)
 
-    (trX1, trX2, trY), (vaX1, vaX2, vaY), (teX1, teX2) = encode_dataset(rocstories(data_dir), encoder=text_encoder)
+    x1, x2, y = encode_dataset(atec(data_dir), encoder=text_encoder)
+    if not submit:
+        valid_index = np.load('data/valid_index.npy')
+        train_index = list(set(valid_index) ^ set(data.index))
+        trX1, trX2, trY = x1[train_index], x2[train_index],y[train_index]
+        vaX1, vaX2, vaY = x1[valid_index], x2[valid_index],y[valid_index]
+    else:
+        teX1, teX2 = x1, x2
     n_y = 2
     encoder['_start_'] = len(encoder)
-    encoder['_classify_'] = len(encoder)
-    clf_token = encoder['_classify_']
+    encoder['_end_'] = len(encoder)
+    clf_token = encoder['_end_']
     n_special = 2
     max_len = n_ctx//2-2
     n_ctx = min(max([max(len(x1[:max_len]),len(x2[:max_len]))for x1,x2 in zip(trX1,trX2)]+[max(len(x1[:max_len]),len(x2[:max_len])) for x1, x2 in zip(vaX1, vaX2)])+n_special, n_ctx)
