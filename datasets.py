@@ -1,7 +1,7 @@
 import os
 import csv
 import numpy as np
-
+from io import open
 from tqdm import tqdm
 
 from sklearn.utils import shuffle
@@ -9,10 +9,9 @@ from sklearn.model_selection import train_test_split
 
 seed = 3535999445
 
-def _rocstories(path):
+def _atec(path):
     with open(path,encoding='utf-8') as f:
         f = csv.reader(f)
-        st = []
         ct1 = []
         ct2 = []
         y = []
@@ -27,9 +26,9 @@ def _rocstories(path):
                 y.append(int(line[-1])-1)
         return st, ct1, ct2, y
 
-def rocstories(data_dir, n_train=1497, n_valid=374):
-    storys, comps1, comps2, ys = _rocstories(os.path.join(data_dir, 'cloze_test_val__spring2016 - cloze_test_ALL_val.csv'))
-    teX1, teX2, teX3, _ = _rocstories(os.path.join(data_dir, 'cloze_test_test__spring2016 - cloze_test_ALL_test.csv'))
+def atec(data_dir, n_train=1497, n_valid=374):
+    storys, comps1, comps2, ys = _atec(os.path.join(data_dir, 'cloze_test_val__spring2016 - cloze_test_ALL_val.csv'))
+    teX1, teX2, teX3, _ = _atec(os.path.join(data_dir, 'cloze_test_test__spring2016 - cloze_test_ALL_test.csv'))
     tr_storys, va_storys, tr_comps1, va_comps1, tr_comps2, va_comps2, tr_ys, va_ys = train_test_split(storys, comps1, comps2, ys, test_size=n_valid, random_state=seed)
     trX1, trX2, trX3 = [], [], []
     trY = []

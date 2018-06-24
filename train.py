@@ -2,7 +2,7 @@ import os
 import time
 import math
 import json
-import joblib
+from sklearn.externals import joblib
 import random
 import argparse
 import numpy as np
@@ -355,6 +355,9 @@ if __name__ == '__main__':
     parser.add_argument('--b1', type=float, default=0.9)
     parser.add_argument('--b2', type=float, default=0.999)
     parser.add_argument('--e', type=float, default=1e-8)
+    # tfm lm tfm+lm
+    parser.add_argument('--mode', type=str, default='tfm')
+    parser.add_argument('--pre_load', type=bool, default=False)
 
     args = parser.parse_args()
     print(args)
@@ -368,19 +371,18 @@ if __name__ == '__main__':
     encoder = text_encoder.encoder
     n_vocab = len(text_encoder.encoder)
 
-    (trX1, trX2, trX3, trY), (vaX1, vaX2, vaX3, vaY), (teX1, teX2, teX3) = encode_dataset(rocstories(data_dir), encoder=text_encoder)
+    (trX1, trX2, trY), (vaX1, vaX2, vaY), (teX1, teX2) = encode_dataset(rocstories(data_dir), encoder=text_encoder)
     n_y = 2
     encoder['_start_'] = len(encoder)
-    encoder['_delimiter_'] = len(encoder)
     encoder['_classify_'] = len(encoder)
     clf_token = encoder['_classify_']
-    n_special = 3
+    n_special = 2
     max_len = n_ctx//2-2
-    n_ctx = min(max([len(x1[:max_len])+max(len(x2[:max_len]), len(x3[:max_len])) for x1, x2, x3 in zip(trX1, trX2, trX3)]+[len(x1[:max_len])+max(len(x2[:max_len]), len(x3[:max_len])) for x1, x2, x3 in zip(vaX1, vaX2, vaX3)]+[len(x1[:max_len])+max(len(x2[:max_len]), len(x3[:max_len])) for x1, x2, x3 in zip(teX1, teX2, teX3)])+3, n_ctx)
-    trX, trM = transform_roc(trX1, trX2, trX3)
-    vaX, vaM = transform_roc(vaX1, vaX2, vaX3)
+    n_ctx = min(max([max(len(x1[:max_len]),len(x2[:max_len]))for x1,x2 in zip(trX1,trX2)]+[max(len(x1[:max_len]),len(x2[:max_len])) for x1, x2 in zip(vaX1, vaX2)])+n_special, n_ctx)
+    trX, trM = transform_roc(trX1, trX2)
+    vaX, vaM = transform_roc(vaX1, vaX2)
     if submit:
-        teX, teM = transform_roc(teX1, teX2, teX3)
+        teX, teM = transform_roc(teX1, teX2)
 
     n_train = len(trY)
     n_valid = len(vaY)
@@ -401,21 +403,21 @@ if __name__ == '__main__':
     params = find_trainable_variables('model')
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
     sess.run(tf.global_variables_initializer())
+    if pre_load:
+        shapes = json.load(open('model/params_shapes.json'))
+        offsets = np.cumsum([np.prod(shape) for shape in shapes])
+        init_params = [np.load('model/params_{}.npy'.format(n)) for n in range(10)]
+        init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
+        init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
+        init_params[0] = init_params[0][:n_ctx]
+        init_params[0] = np.concatenate([init_params[1], (np.random.randn(n_special, n_embd)*0.02).astype(np.float32), init_params[0]], 0)
+        del init_params[1]
 
-    shapes = json.load(open('model/params_shapes.json'))
-    offsets = np.cumsum([np.prod(shape) for shape in shapes])
-    init_params = [np.load('model/params_{}.npy'.format(n)) for n in range(10)]
-    init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
-    init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
-    init_params[0] = init_params[0][:n_ctx]
-    init_params[0] = np.concatenate([init_params[1], (np.random.randn(n_special, n_embd)*0.02).astype(np.float32), init_params[0]], 0)
-    del init_params[1]
-
-    if n_transfer == -1:
-        n_transfer = 0
-    else:
-        n_transfer = 1+n_transfer*12
-    sess.run([p.assign(ip) for p, ip in zip(params[:n_transfer], init_params[:n_transfer])])
+        if n_transfer == -1:
+            n_transfer = 0
+        else:
+            n_transfer = 1+n_transfer*12
+        sess.run([p.assign(ip) for p, ip in zip(params[:n_transfer], init_params[:n_transfer])])
 
     eval_mgpu_logits, eval_mgpu_clf_losses, eval_mgpu_lm_losses = mgpu_predict(X_train, M_train, Y_train)
     eval_logits, eval_clf_losses, eval_lm_losses = model(X, M, Y, train=False, reuse=True)
