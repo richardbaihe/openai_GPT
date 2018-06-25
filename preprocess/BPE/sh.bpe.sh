@@ -1,3 +1,6 @@
+if [ ! -e ../../data/temp ];then
+	mkdir ../../data/temp
+fi
 cat ../../data/seg_Ax.txt ../../data/seg_Bx.txt > ../../data/temp/seg_ABx.txt &&
 python learn_bpe.py -i ../../data/temp/seg_ABx.txt -s 4000 -v -o 4000.codec &&
 python apply_bpe.py -i ../../data/temp/seg_ABx.txt -o bpe_ABx.txt -c 4000.codec &&

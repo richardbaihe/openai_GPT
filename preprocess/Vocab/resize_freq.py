@@ -9,10 +9,10 @@ parser.add_argument('--symbols', '-s', type=int, default=10000,help="Create this
 
 args = parser.parse_args()
 all_lines = args.input.readlines()
+args.output.write('UNK\n')
 for line in all_lines:
     num = int(line.split()[-1])
     if num < args.symbols:
         break
     args.output.write(' '.join(line.split()[:-1]) + '\n')
 
-args.output.write('UNK\n')
