@@ -5,7 +5,9 @@ from sklearn.externals import joblib
 import random
 import numpy as np
 import tensorflow as tf
-
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import nn_ops
 from functools import partial
 from sklearn.utils import shuffle
 from sklearn.metrics import f1_score
@@ -13,7 +15,7 @@ from sklearn.metrics import f1_score
 from opt import adam, warmup_cosine, warmup_linear, warmup_constant
 from datasets import atec
 from text_utils import TextEncoder
-from utils import encode_dataset, flatten, iter_data, find_trainable_variables, get_ema_vars, convert_gradient_to_tensor, shape_list, ResultLogger, assign_to_gpu, average_grads, make_path
+from utils import encode_dataset, iter_data, find_trainable_variables, get_ema_vars, convert_gradient_to_tensor, shape_list, ResultLogger, assign_to_gpu, average_grads, make_path
 
 # seed = 42
 # n_iter = 3
@@ -71,7 +73,7 @@ lr_schedules = {
 }
 
 def _norm(x, g=None, b=None, e=1e-5, axis=[1]):
-    u = tf.reduce_mean(x, axis=axis, keep_dims=True)
+    u = tf.reduce_mean(x, axis=axis, keepdims=True)
     s = tf.reduce_mean(tf.square(x-u), axis=axis, keep_dims=True)
     x = (x - u) * tf.rsqrt(s + e)
     if g is not None and b is not None:
@@ -239,7 +241,9 @@ class LM_transformer():
             self.clf_loss = tf.reduce_mean(self.clf_losses)
 
         self.params = find_trainable_variables('model')
-        self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+        tf_config = tf.ConfigProto(allow_soft_placement=True)
+        tf_config.gpu_options.allow_growth = True
+        self.sess = tf.Session(config=tf_config)
         self.sess.run(tf.global_variables_initializer())
 
         self.eval_mgpu_logits, self.eval_mgpu_clf_losses, self.eval_mgpu_lm_losses = self.mgpu_predict(self.X_train, self.M_train, self.Y_train)
@@ -304,8 +308,10 @@ class LM_transformer():
             clf_h = tf.reshape(clf_h, [-1, n_embd])
             clf_logits = clf(clf_h, 1, train=train)
             clf_logits = tf.reshape(clf_logits, [-1, 2])
-
             clf_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=clf_logits, labels=Y)
+
+            log_weight = (2.0 * pos_weight -1) * tf.cast(Y,tf.float32) + 1 - pos_weight
+            clf_losses = log_weight * clf_losses
             return clf_logits, clf_losses, lm_losses
 
 
@@ -358,29 +364,29 @@ class LM_transformer():
         n_updates = 0
         n_epochs = 0
         self.save(os.path.join(save_dir, desc, 'best_params.jl'))
-        best_score = 0
+        self.best_score = 0
 
         def log():
-            global best_score
+            # global best_score
             tr_logits, tr_cost = self.iter_apply(trX[:n_valid], trM[:n_valid], trY[:n_valid])
             va_logits, va_cost = self.iter_apply(vaX, vaM, vaY)
             tr_cost = tr_cost / len(trY[:n_valid])
             va_cost = va_cost / n_valid
             tr_f1 = f1_score(trY[:n_valid], np.argmax(tr_logits, 1)) * 100.
             va_f1 = f1_score(vaY, np.argmax(va_logits, 1)) * 100.
-            self.logger.log(n_epochs=n_epochs, n_updates=n_updates, tr_cost=tr_cost, va_cost=va_cost, tr_acc=tr_f1,
-                       va_acc=va_f1)
+            self.logger.log(n_epochs=n_epochs, n_updates=n_updates, tr_cost=tr_cost, va_cost=va_cost, tr_f1=tr_f1,
+                       va_f1=va_f1)
             print('%d %d %.3f %.3f %.2f %.2f' % (n_epochs, n_updates, tr_cost, va_cost, tr_f1, va_f1))
             score = va_f1
-            if score > best_score:
-                best_score = score
+            if score > self.best_score:
+                self.best_score = score
                 self.save(os.path.join(save_dir, desc, 'best_params.jl'))
 
         for i in range(n_iter):
             for xmb, mmb, ymb in iter_data(*shuffle(trX, trM, trY, random_state=np.random), n_batch=self.n_batch_train, truncate=True, verbose=True):
                 cost, _ = self.sess.run([self.clf_loss, self.train], {self.X_train:xmb, self.M_train:mmb, self.Y_train:ymb})
                 n_updates += 1
-                if n_updates in [1000, 2000, 4000, 8000, 16000, 32000] and n_epochs == 0:
+                if n_updates in [1000, 2000, 4000, 6000, 8000, 16000, 32000] :
                     log()
             n_epochs += 1
             log()

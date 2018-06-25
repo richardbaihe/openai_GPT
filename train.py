@@ -457,6 +457,7 @@ if __name__ == '__main__':
     parser.add_argument('--b2', type=float, default=0.999)
     parser.add_argument('--e', type=float, default=1e-8)
     parser.add_argument('--pre_load', type=bool, default=False)
+    parser.add_argument('--pos_weight', type=float, default=0.8)
     args = parser.parse_args()
 
     model = LM_transformer(args)
