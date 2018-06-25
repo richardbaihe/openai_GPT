@@ -274,7 +274,7 @@ class LM_transformer():
 
     def model(self,X, M, Y, train=False, reuse=False):
         with tf.variable_scope('model', reuse=reuse):
-            we = tf.get_variable("we", [self.n_vocab + self.n_special + max_len, n_embd],
+            we = tf.get_variable("we", [self.n_vocab + self.n_special + max_len+2, n_embd],
                                  initializer=tf.random_normal_initializer(stddev=0.02))
             we = dropout(we, embd_pdrop, train)
 
