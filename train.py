@@ -427,12 +427,9 @@ from model import LM_transformer
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--desc', type=str,default='tmp')
-    parser.add_argument('--dataset', type=str)
     parser.add_argument('--log_dir', type=str, default='log/')
     parser.add_argument('--save_dir', type=str, default='save/')
     parser.add_argument('--data_dir', type=str, default='data/AB_unk.tsv')
-    parser.add_argument('--submission_dir', type=str, default='submission/')
-    parser.add_argument('--submit', action='store_true')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--n_iter', type=int, default=3)
     parser.add_argument('--n_batch', type=int, default=8)

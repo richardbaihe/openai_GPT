@@ -2,8 +2,8 @@ import csv
 import numpy as np
 from io import open
 import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
+# reload(sys)
+# sys.setdefaultencoding('utf-8')
 
 seed = 3535999445
 

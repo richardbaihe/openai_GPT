@@ -1,7 +1,7 @@
 import sys
 from io import open
-reload(sys)
-sys.setdefaultencoding('utf-8')
+# reload(sys)
+# sys.setdefaultencoding('utf-8')
 
 
 class TextEncoder(object):
