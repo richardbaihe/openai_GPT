@@ -278,8 +278,8 @@ class LM_transformer():
                                  initializer=tf.random_normal_initializer(stddev=0.02))
             we = dropout(we, embd_pdrop, train)
 
-            X = tf.reshape(X, [-1, max_len, 2])
-            M = tf.reshape(M, [-1, max_len])
+            X = tf.reshape(X, [-1, max_len+2, 2])
+            M = tf.reshape(M, [-1, max_len+2])
 
             h = embed(X, we)
             for layer in range(n_layer):
@@ -294,7 +294,7 @@ class LM_transformer():
 
             clf_h = tf.reshape(h, [-1, n_embd])
             pool_idx = tf.cast(tf.argmax(tf.cast(tf.equal(X[:, :, 0], self.clf_token), tf.float32), 1), tf.int32)
-            clf_h = tf.gather(clf_h, tf.range(shape_list(X)[0], dtype=tf.int32) * max_len + pool_idx)
+            clf_h = tf.gather(clf_h, tf.range(shape_list(X)[0], dtype=tf.int32) * (max_len+2) + pool_idx)
 
             clf_h = tf.reshape(clf_h, [-1, 2, n_embd])
             if train and clf_pdrop > 0:
@@ -345,7 +345,7 @@ class LM_transformer():
             init_params = [np.load('model/params_{}.npy'.format(n)) for n in range(10)]
             init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
             init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
-            init_params[0] = init_params[0][:max_len]
+            init_params[0] = init_params[0][:max_len+2]
             init_params[0] = np.concatenate([init_params[1], (np.random.randn(self.n_special, n_embd)*0.02).astype(np.float32), init_params[0]], 0)
             del init_params[1]
 
