@@ -1,3 +1,4 @@
+#!/bin/bash
 if [ ! -e ../../data/temp ];then
 	mkdir ../../data/temp
 fi
