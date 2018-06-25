@@ -227,10 +227,10 @@ class LM_transformer():
         return xmb, mmb
 
     def build_graph(self,tr=True):
-        self.X_train = tf.placeholder(tf.int32, [self.n_batch_train, 2, max_len, 2])
-        self.M_train = tf.placeholder(tf.float32, [self.n_batch_train, 2, max_len])
-        self.X = tf.placeholder(tf.int32, [None, 2, max_len, 2])
-        self.M = tf.placeholder(tf.float32, [None, 2, max_len])
+        self.X_train = tf.placeholder(tf.int32, [self.n_batch_train, 2, max_len+2, 2])
+        self.M_train = tf.placeholder(tf.float32, [self.n_batch_train, 2, max_len+2])
+        self.X = tf.placeholder(tf.int32, [None, 2, max_len+2, 2])
+        self.M = tf.placeholder(tf.float32, [None, 2, max_len+2])
 
         self.Y_train = tf.placeholder(tf.int32, [self.n_batch_train])
         self.Y = tf.placeholder(tf.int32, [None])
