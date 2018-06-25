@@ -1,23 +1,19 @@
 import os
-import re
 import sys
 import json
-import math
 import time
-import unicodedata
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import function
-from tqdm import tqdm
 from functools import partial
 
 def encode_dataset(*fields, encoder):
-    fields = []
+    results = []
     for field in fields[0]:
         if isinstance(field[0], str):
             field = encoder.encode(field)
-        fields.append(field)
-    return fields
+        results.append(field)
+    return results
 
 def stsb_label_encoding(labels, nclass=6):
     """
@@ -103,7 +99,7 @@ def iter_data(*datas, n_batch=128, truncate=False, verbose=False, max_batches=fl
         f = sys.stderr
     else:
         f = open(os.devnull, 'w')
-    for i in tqdm(range(0, n, n_batch), total=n//n_batch, file=f, ncols=80, leave=False):
+    for i in range(0, n, n_batch):
         if n_batches >= max_batches: raise StopIteration
         if len(datas) == 1:
             yield datas[0][i:i+n_batch]

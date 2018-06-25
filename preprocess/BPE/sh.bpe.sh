@@ -11,9 +11,13 @@ nums=$(cat unk_ABx.txt| wc -l)
 let nums=nums/2
 head -n ${nums} unk_ABx.txt > A.txt
 tail -n ${nums} unk_ABx.txt > B.txt
-paste -d '\t' A.txt B.txt > bpe_unk_AB.txt
+paste -d '\t' A.txt B.txt > bpe_unk_AB.tsv
+paste -d '\t' bpe_unk_AB.tsv ../../data/label.txt > AB_unk.tsv
+mv AB_unk.tsv ../../data/
+mv vocab.txt ../../data/
 rm A.txt
 rm B.txt
 rm unk_ABx.txt
 rm vocab_bpe.txt
 rm bpe_ABx.txt
+rm bpe_unk_AB.tsv
