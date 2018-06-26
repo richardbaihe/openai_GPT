@@ -74,7 +74,7 @@ lr_schedules = {
 
 def _norm(x, g=None, b=None, e=1e-5, axis=[1]):
     u = tf.reduce_mean(x, axis=axis, keepdims=True)
-    s = tf.reduce_mean(tf.square(x-u), axis=axis, keep_dims=True)
+    s = tf.reduce_mean(tf.square(x-u), axis=axis, keepdims=True)
     x = (x - u) * tf.rsqrt(s + e)
     if g is not None and b is not None:
         x = x*g + b
@@ -209,7 +209,7 @@ class LM_transformer():
         self.clf_token = self.encoder['_end_']
         self.n_special = 2
         self.n_batch_train = n_batch * n_gpu
-
+        self.n_updates_total = n_iter
 
     def transform_roc(self,X1, X2):
         n_batch = len(X1)
@@ -228,7 +228,7 @@ class LM_transformer():
         xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len+2)
         return xmb, mmb
 
-    def build_graph(self,tr=True):
+    def build_graph(self):
         self.X_train = tf.placeholder(tf.int32, [self.n_batch_train, 2, max_len+2, 2])
         self.M_train = tf.placeholder(tf.float32, [self.n_batch_train, 2, max_len+2])
         self.X = tf.placeholder(tf.int32, [None, 2, max_len+2, 2])
@@ -236,9 +236,9 @@ class LM_transformer():
 
         self.Y_train = tf.placeholder(tf.int32, [self.n_batch_train])
         self.Y = tf.placeholder(tf.int32, [None])
-        if tr:
-            self.train, self.logits, self.clf_losses, self.lm_losses = self.mgpu_train(self.X_train, self.M_train, self.Y_train)
-            self.clf_loss = tf.reduce_mean(self.clf_losses)
+
+        self.train, self.logits, self.clf_losses, self.lm_losses = self.mgpu_train(self.X_train, self.M_train, self.Y_train)
+        self.clf_loss = tf.reduce_mean(self.clf_losses)
 
         self.params = find_trainable_variables('model')
         tf_config = tf.ConfigProto(allow_soft_placement=True)
@@ -415,7 +415,7 @@ class LM_transformer():
     def predict(self,data_dir):
         teX1, teX2, _ = encode_dataset(atec(data_dir), encoder=self.text_encoder)
         teX, teM = self.transform_roc(teX1, teX2)
-        self.build_graph(tr=False)
+        self.build_graph()
         self.sess.run(
             [p.assign(ip) for p, ip in zip(self.params, joblib.load(os.path.join(save_dir, desc, 'best_params.jl')))])
         pred_fn = lambda x: np.argmax(x, 1)

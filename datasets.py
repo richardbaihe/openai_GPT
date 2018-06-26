@@ -14,12 +14,11 @@ def _atec(path):
         ct2 = []
         y = []
         for i, line in enumerate(list(f)):
-            if i > 0:
-                c1 = line[0]
-                c2 = line[1]
-                ct1.append(c1)
-                ct2.append(c2)
-                y.append(int(line[-1]))
+            c1 = line[0]
+            c2 = line[1]
+            ct1.append(c1)
+            ct2.append(c2)
+            y.append(int(line[-1]))
         return ct1, ct2, y
 
 def atec(data_dir):
