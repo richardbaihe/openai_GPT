@@ -36,14 +36,14 @@ parser.add_argument('--e', type=float, default=1e-8)
 parser.add_argument('--pre_load', type=bool, default=False)
 parser.add_argument('--pos_weight', type=float, default=0.8)
 
-# parser.add_argument('--input',required=True)
-# parser.add_argument('--output',required=True)
+parser.add_argument('--input',required=True)
+parser.add_argument('--output',required=True)
 args = parser.parse_args()
-# in_path = args.input
-# out_path = args.output
+in_path = args.input
+out_path = args.output
 
-# test = pd.read_csv(in_path,sep='\t',header=None,quoting=csv.QUOTE_NONE)
-# test.to_csv('data/temp.tsv', index=None, header=None, sep='\t',columns=[1,2])
+test = pd.read_csv(in_path,sep='\t',header=None,quoting=csv.QUOTE_NONE)
+test.to_csv('data/temp.tsv', index=None, header=None, sep='\t',columns=[1,2])
 model = LM_transformer(args)
 result = model.predict('data/temp.tsv')
 
