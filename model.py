@@ -5,9 +5,6 @@ from sklearn.externals import joblib
 import random
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
 from functools import partial
 from sklearn.utils import shuffle
 from sklearn.metrics import f1_score
@@ -16,38 +13,6 @@ from opt import adam, warmup_cosine, warmup_linear, warmup_constant
 from datasets import atec
 from text_utils import TextEncoder
 from utils import encode_dataset, iter_data, find_trainable_variables, get_ema_vars, convert_gradient_to_tensor, shape_list, ResultLogger, assign_to_gpu, average_grads, make_path
-
-# seed = 42
-# n_iter = 3
-# n_batch = 8
-# max_grad_norm = 1
-# lr = 6.25e-5
-# lr_warmup = 0.002
-# max_len = 27
-# n_gpu = 4
-# opt = 'adam'
-# afn = 'gelu'
-# n_embd = 384
-# n_head = 6
-# n_layer = 3
-# embd_pdrop = 0.1
-# attn_pdrop = 0.1
-# resid_pdrop = 0.1
-# clf_pdrop = 0.1
-# l2 = 0.01
-# vector_l2 = True
-# lr_schedule = 'warmup_linear'
-# encoder_path = 'data/vocab.txt'
-# desc = 'tmp'
-# log_dir = 'log/'
-# save_dir = 'save/'
-# data_dir = 'data/AB_unk.tsv'
-# n_transfer = 12
-# lm_coef = 0
-# b1 = 0.9
-# b2 = 0.999
-# e = 1e-8
-# pre_load = False
 
 
 def gelu(x):
@@ -205,34 +170,40 @@ class LM_transformer():
         self.n_vocab = len(self.text_encoder.encoder)
         self.n_y = 2
         self.encoder['_start_'] = len(self.encoder)
+        self.encoder['_delimiter_'] = len(self.encoder)
         self.encoder['_end_'] = len(self.encoder)
         self.clf_token = self.encoder['_end_']
-        self.n_special = 2
+        self.n_special = 3
         self.n_batch_train = n_batch * n_gpu
         self.n_updates_total = n_iter
 
     def transform_roc(self,X1, X2):
         n_batch = len(X1)
-        xmb = np.zeros((n_batch, 2, 2+max_len, 2), dtype=np.int32)
-        mmb = np.zeros((n_batch, 2, 2+max_len), dtype=np.float32)
+        xmb = np.zeros((n_batch, 2, n_ctx, 2), dtype=np.int32)
+        mmb = np.zeros((n_batch, 2, n_ctx), dtype=np.float32)
         start = self.encoder['_start_']
+        delimiter = self.encoder['_delimiter_']
+        max_len = (n_ctx-3)//2
+
         for i, (x1, x2), in enumerate(zip(X1, X2)):
-            x12 = [start] + x1[:max_len] + [self.clf_token]
-            x13 = [start] + x2[:max_len] + [self.clf_token]
+            x12 = [start] + x1[:max_len] + [delimiter] + x2[:max_len] + [self.clf_token]
+            x13 = [start] + x2[:max_len] + [delimiter] + x1[:max_len] + [self.clf_token]
+            # x12 = x1[:max_len]
+            # x13 = x2[:max_len]
             l12 = len(x12)
             l13 = len(x13)
             xmb[i, 0, :l12, 0] = x12
             xmb[i, 1, :l13, 0] = x13
             mmb[i, 0, :l12] = 1
             mmb[i, 1, :l13] = 1
-        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len+2)
+        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
         return xmb, mmb
 
     def build_graph(self):
-        self.X_train = tf.placeholder(tf.int32, [self.n_batch_train, 2, max_len+2, 2])
-        self.M_train = tf.placeholder(tf.float32, [self.n_batch_train, 2, max_len+2])
-        self.X = tf.placeholder(tf.int32, [None, 2, max_len+2, 2])
-        self.M = tf.placeholder(tf.float32, [None, 2, max_len+2])
+        self.X_train = tf.placeholder(tf.int32, [self.n_batch_train, 2, n_ctx, 2])
+        self.M_train = tf.placeholder(tf.float32, [self.n_batch_train, 2, n_ctx])
+        self.X = tf.placeholder(tf.int32, [None, 2, n_ctx, 2])
+        self.M = tf.placeholder(tf.float32, [None, 2, n_ctx])
 
         self.Y_train = tf.placeholder(tf.int32, [self.n_batch_train])
         self.Y = tf.placeholder(tf.int32, [None])
@@ -278,12 +249,12 @@ class LM_transformer():
 
     def model(self,X, M, Y, train=False, reuse=False):
         with tf.variable_scope('model', reuse=reuse):
-            we = tf.get_variable("we", [self.n_vocab + self.n_special + max_len+2, n_embd],
+            we = tf.get_variable("we", [self.n_vocab + self.n_special + n_ctx, n_embd],
                                  initializer=tf.random_normal_initializer(stddev=0.02))
             we = dropout(we, embd_pdrop, train)
 
-            X = tf.reshape(X, [-1, max_len+2, 2])
-            M = tf.reshape(M, [-1, max_len+2])
+            X = tf.reshape(X, [-1, n_ctx, 2])
+            M = tf.reshape(M, [-1, n_ctx])
 
             h = embed(X, we)
             for layer in range(n_layer):
@@ -298,16 +269,16 @@ class LM_transformer():
 
             clf_h = tf.reshape(h, [-1, n_embd])
             pool_idx = tf.cast(tf.argmax(tf.cast(tf.equal(X[:, :, 0], self.clf_token), tf.float32), 1), tf.int32)
-            clf_h = tf.gather(clf_h, tf.range(shape_list(X)[0], dtype=tf.int32) * (max_len+2) + pool_idx)
+            clf_h = tf.gather(clf_h, tf.range(shape_list(X)[0], dtype=tf.int32) * (n_ctx) + pool_idx)
 
             clf_h = tf.reshape(clf_h, [-1, 2, n_embd])
             if train and clf_pdrop > 0:
                 shape = shape_list(clf_h)
                 shape[1] = 1
                 clf_h = tf.nn.dropout(clf_h, 1 - clf_pdrop, shape)
-            clf_h = tf.reshape(clf_h, [-1, n_embd])
-            clf_logits = clf(clf_h, 1, train=train)
-            clf_logits = tf.reshape(clf_logits, [-1, 2])
+            clf_h = tf.reshape(clf_h, [-1,shape_list(clf_h)[1]*shape_list(clf_h)[2]])
+            clf_logits = clf(clf_h, 2, train=train)
+            #clf_logits = tf.reshape(clf_logits, [-1, 2])
             clf_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=clf_logits, labels=Y)
 
             log_weight = (2.0 * pos_weight -1) * tf.cast(Y,tf.float32) + 1 - pos_weight
@@ -351,7 +322,7 @@ class LM_transformer():
             init_params = [np.load('model/params_{}.npy'.format(n)) for n in range(10)]
             init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
             init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
-            init_params[0] = init_params[0][:max_len+2]
+            init_params[0] = init_params[0][:+n_ctx]
             init_params[0] = np.concatenate([init_params[1], (np.random.randn(self.n_special, n_embd)*0.02).astype(np.float32), init_params[0]], 0)
             del init_params[1]
 
@@ -386,7 +357,7 @@ class LM_transformer():
             for xmb, mmb, ymb in iter_data(*shuffle(trX, trM, trY, random_state=np.random), n_batch=self.n_batch_train, truncate=True, verbose=True):
                 cost, _ = self.sess.run([self.clf_loss, self.train], {self.X_train:xmb, self.M_train:mmb, self.Y_train:ymb})
                 n_updates += 1
-                if n_updates in [1000, 2000, 4000, 6000, 8000, 16000, 32000] :
+                if n_updates%100==0 :
                     log()
             n_epochs += 1
             log()
