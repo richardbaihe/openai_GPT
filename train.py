@@ -1,11 +1,15 @@
 import argparse
 from model import LM_transformer
+from process import preprocess_word
+from process import preprocess_char
+import pandas as pd
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--desc', type=str,default='tmp')
     parser.add_argument('--log_dir', type=str, default='log/')
     parser.add_argument('--save_dir', type=str, default='save/')
-    parser.add_argument('--data_dir', type=str, default='data/AB_unk.tsv')
+    parser.add_argument('--data_dir', type=str, default='data/char_AB_unk.tsv')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--n_iter', type=int, default=3)
     parser.add_argument('--n_batch', type=int, default=8)
@@ -26,7 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--opt', type=str, default='adam')
     parser.add_argument('--afn', type=str, default='gelu')
     parser.add_argument('--lr_schedule', type=str, default='warmup_linear')
-    parser.add_argument('--encoder_path', type=str, default='data/vocab.txt')
+    parser.add_argument('--encoder_path', type=str, default='data/char_vocab.txt')
     parser.add_argument('--n_transfer', type=int, default=12)
     parser.add_argument('--lm_coef', type=float, default=0)
     parser.add_argument('--b1', type=float, default=0.9)
@@ -36,5 +40,10 @@ if __name__ == '__main__':
     parser.add_argument('--pos_weight', type=float, default=0.8)
     args = parser.parse_args()
 
+    # data_origin = pd.read_csv('data/origin/atec_nlp_sim_train.csv',sep='\t',index_col=0,names=['A','B','label'])
+    # data_add = pd.read_csv('data/origin/atec_nlp_sim_train_add.csv',sep='\t',index_col=0,names=['A','B','label'])
+    # data = pd.concat([data_origin,data_add],ignore_index=True)
+    #preprocess_char(data,args.encoder_path)
+
     model = LM_transformer(args)
-    model.train(data_dir='data/AB_unk.tsv')
+    model.train()

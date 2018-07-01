@@ -1,10 +1,10 @@
 import csv
 import numpy as np
 from io import open
-import sys
-# reload(sys)
-# sys.setdefaultencoding('utf-8')
-
+import sys,six
+if six.PY2:
+    reload(sys)
+    sys.setdefaultencoding('utf-8')
 seed = 3535999445
 
 def _atec(path):
@@ -18,7 +18,10 @@ def _atec(path):
             c2 = line[1]
             ct1.append(c1)
             ct2.append(c2)
-            y.append(int(line[-1]))
+            if len(line)<3:
+                y.append(-1)
+            else:
+                y.append(int(line[-1]))
         return ct1, ct2, y
 
 def atec(data_dir):

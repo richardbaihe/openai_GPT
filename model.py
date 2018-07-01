@@ -289,7 +289,7 @@ class LM_transformer():
     def iter_apply(self,Xs, Ms, Ys):
         fns = [lambda x: np.concatenate(x, 0), lambda x: float(np.sum(x))]
         results = []
-        for xmb, mmb, ymb in iter_data(Xs, Ms, Ys, n_batch=self.n_batch_train, truncate=False, verbose=True):
+        for xmb, mmb, ymb in iter_data((Xs, Ms, Ys), n_batch=self.n_batch_train, truncate=False, verbose=True):
             n = len(xmb)
             if n == self.n_batch_train:
                 res = self.sess.run([self.eval_mgpu_logits, self.eval_mgpu_clf_loss], {self.X_train: xmb, self.M_train: mmb, self.Y_train: ymb})
@@ -300,10 +300,10 @@ class LM_transformer():
         results = zip(*results)
         return [fn(res) for res, fn in zip(results, fns)]
 
-    def train(self,data_dir='data/AB_unk.tsv'):
+    def train(self):
         def trva_split(data, index):
             return [data[i] for i in index]
-        self.x1, self.x2, self.y = encode_dataset(atec(data_dir), encoder=self.text_encoder)
+        self.x1, self.x2, self.y = encode_dataset(self.text_encoder, atec(data_dir) )
 
         valid_index = np.load('data/valid_index.npy').tolist()
         train_index = list(set(valid_index) ^ set(range(len(self.y))))
@@ -354,7 +354,7 @@ class LM_transformer():
                 self.save(os.path.join(save_dir, desc, 'best_params.jl'))
 
         for i in range(n_iter):
-            for xmb, mmb, ymb in iter_data(*shuffle(trX, trM, trY, random_state=np.random), n_batch=self.n_batch_train, truncate=True, verbose=True):
+            for xmb, mmb, ymb in iter_data((shuffle(trX, trM, trY, random_state=np.random)), n_batch=self.n_batch_train, truncate=True, verbose=True):
                 cost, _ = self.sess.run([self.clf_loss, self.train], {self.X_train:xmb, self.M_train:mmb, self.Y_train:ymb})
                 n_updates += 1
                 if n_updates%100==0 :
@@ -364,7 +364,7 @@ class LM_transformer():
 
     def iter_predict(self,Xs, Ms):
         logits = []
-        for xmb, mmb in iter_data(Xs, Ms, n_batch=self.n_batch_train, truncate=False, verbose=True):
+        for xmb, mmb in iter_data((Xs, Ms), n_batch=self.n_batch_train, truncate=False, verbose=True):
             n = len(xmb)
             if n == self.n_batch_train:
                 logits.append(self.sess.run(self.eval_mgpu_logits, {self.X_train: xmb, self.M_train: mmb}))
@@ -384,7 +384,7 @@ class LM_transformer():
         return ops
 
     def predict(self,data_dir):
-        teX1, teX2, _ = encode_dataset(atec(data_dir), encoder=self.text_encoder)
+        teX1, teX2, _ = encode_dataset(self.text_encoder, atec(data_dir))
         teX, teM = self.transform_roc(teX1, teX2)
         self.build_graph()
         self.sess.run(
@@ -395,4 +395,4 @@ class LM_transformer():
 
     def save(self,path):
         ps = self.sess.run(self.params)
-        joblib.dump(ps, make_path(path))
+        joblib.dump(ps, make_path(path),protocol=2)

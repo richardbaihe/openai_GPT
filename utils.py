@@ -7,7 +7,7 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 from functools import partial
 
-def encode_dataset(*fields, encoder):
+def encode_dataset(encoder,*fields):
     results = []
     for field in fields[0]:
         if isinstance(field[0], str):
@@ -89,7 +89,7 @@ def flatten(outer):
 def remove_none(l):
     return [e for e in l if e is not None]
 
-def iter_data(*datas, n_batch=128, truncate=False, verbose=False, max_batches=float("inf")):
+def iter_data(datas, n_batch=128, truncate=False, verbose=False, max_batches=float("inf")):
     n = len(datas[0])
     if truncate:
         n = (n//n_batch)*n_batch
@@ -110,7 +110,7 @@ def iter_data(*datas, n_batch=128, truncate=False, verbose=False, max_batches=fl
 def get_ema_if_exists(v, gvs):
     name = v.name.split(':')[0]
     ema_name = name+'/ExponentialMovingAverage:0'
-    ema_v = [v for v in gvs if v.name == ema_name]
+    ema_v = [x for x in gvs if x.name == ema_name]
     if len(ema_v) == 0:
         ema_v = [v]
     return ema_v[0]
