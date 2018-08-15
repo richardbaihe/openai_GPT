@@ -35,3 +35,19 @@ def atec(data_dir):
 
     trY = np.asarray(trY, dtype=np.int32)
     return (trX1, trX2, trY)
+
+def pre_train_valid(path):
+    with open(path,'rb') as f:
+        ct1 = []
+        for row in f.readlines():
+            ct1.append(row.strip())
+        return ct1
+
+def pre_train(data):
+    comps1 = data
+    trX1 = []
+    for c1 in comps1:
+        if not isinstance(c1, str):
+            c1 = c1.decode('utf-8')
+        trX1.append(c1)
+    return [trX1]

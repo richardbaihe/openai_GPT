@@ -1,3 +1,3 @@
-#!/bin/bash
-export CUDA_VISIBLE_DEVICES=0
-python -u train.py --n_gpu=1 --n_ctx=73 --n_batch=128 --n_iter=10 --lr=1e-4 --n_head=8 --n_layer=6 --lm_coef=0.2 --desc=nctx73_lm
+jbsub -require "hname=dccxc008" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=ps --task_index=0 &&
+jbsub -require "hname=dccxc011" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=worker --task_index=0 &&
+jbsub -require "hname=dccxc015" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=worker --task_index=1 
