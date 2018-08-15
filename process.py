@@ -101,7 +101,8 @@ def preprocess_char_wkx(data, args):
     def unk(x):
         return x if x in vocab.keys() else 'UNK'
 
-    corpus['char_ABx_unk'] = corpus['char_ABx'].apply(lambda x: ' '.join([unk(i) for i in x.split(' ')]))
+    corpus['char_ABx_preprocess'] = corpus['char_ABx'].apply(preprocess)
+    corpus['char_ABx_unk'] = corpus['char_ABx_preprocess'].apply(lambda x: ' '.join([unk(i) for i in x.split(' ')]))
 
     data['char_Ax_unk'] = corpus['char_ABx_unk'][:len(corpus['char_ABx_unk']) // 2]
     data['char_Bx_unk'] = corpus['char_ABx_unk'][len(corpus['char_ABx_unk']) // 2:]
@@ -111,41 +112,41 @@ def preprocess_char_wkx(data, args):
                     index=None)
     else:
         data.to_csv(args.data_dir, sep='\t', columns=['char_Ax_unk', 'char_Bx_unk'], header=None, index=None)
+    # preprocess
+def preprocess(txt):
+    def seg_zh(matched):
+        begin, end = matched.regs[0]
+        phrase = matched.string[begin:end]
+        phrase = ' '.join(list(phrase))
+        return ' '+phrase+' '
+    def match_num(matched):
+        begin, end = matched.regs[0]
+        length = str(end - begin)
+        #return ' #num' + length + ' '
+        return '*'
+    def match_en(matched):
+        begin, end = matched.regs[0]
+        word = matched.string[begin:end].lower()
+        return ' ' + word + ' '
 
+    def match_symbol(matched):
+        begin, end = matched.regs[0]
+        phrase = matched.string[begin:end]
+        phrase = ' '.join(list(phrase))
+        return ' '+phrase+' '
+
+    txt = re.sub(u'[!“\"#$%&\'()+,-./:;<=>?@[\]^_`{|}~，。！？、【】「」～；（）、：“”‘’·－…〈〉|』『]+', match_symbol, txt)
+    #txt = re.sub(u'[a-zA-Z]+', match_en, txt)
+    txt = re.sub(u'[0-9]+\*+[0-9]+|[0-9]+|\*\*\*', match_num, txt)
+    txt = re.sub(u'[\u4e00-\u9fa5]+', seg_zh, txt)
+    txt = re.sub('\s+', ' ', txt)
+    return txt
 def preprocess_char(args):
     # if os.path.exists(args.data_dir):
     #     return
     train_f = args.raw_data
     temp_f = open('../chinese_data/temp/preprocess.char.zh','w',encoding='utf-8')
 
-    # preprocess
-    def preprocess(txt):
-        def seg_zh(matched):
-            begin, end = matched.regs[0]
-            phrase = matched.string[begin:end]
-            phrase = ' '.join(list(phrase))
-            return ' '+phrase+' '
-        def match_num(matched):
-            begin, end = matched.regs[0]
-            length = str(end - begin)
-            return ' #num' + length + ' '
-        def match_en(matched):
-            begin, end = matched.regs[0]
-            word = matched.string[begin:end].lower()
-            return ' ' + word + ' '
-
-        def match_symbol(matched):
-            begin, end = matched.regs[0]
-            phrase = matched.string[begin:end]
-            phrase = ' '.join(list(phrase))
-            return ' '+phrase+' '
-
-        txt = re.sub(u'[!“\"#$%&\'()+,-./:;<=>?@[\]^_`{|}~，。！？、【】「」～；（）、：“”‘’·－…〈〉|』『]+', match_symbol, txt)
-        txt = re.sub(u'[a-zA-Z]+', match_en, txt)
-        txt = re.sub(u'[0-9]+\*+[0-9]+|[0-9]+|\*\*\*', match_num, txt)
-        txt = re.sub(u'[\u4e00-\u9fa5]+', seg_zh, txt)
-        txt = re.sub('\s+', ' ', txt)
-        return txt
     # vocab
     dic = {}
     vocab_path = args.encoder_path
@@ -154,12 +155,12 @@ def preprocess_char(args):
     c = Counter()
     count = 0
     for row in open(train_f,'r',encoding='utf-8'):
-        new_row = row.lower() #preprocess(row)
-        for word in new_row.strip():#.split():
+        new_row = preprocess(row)
+        for word in new_row.strip().split():
             if word != ' ':
                 count += 1
                 c[word] += 1
-        temp_f.write(new_row)
+        temp_f.write(new_row+'\n')
     temp_f.close()
     for key, f in sorted(c.items(), key=lambda x: x[1], reverse=True):
         if f < 30:
@@ -177,7 +178,7 @@ def preprocess_char(args):
         else:
             return ''
     for row in temp_f:
-        new_row = ' '.join([unk(i) for i in row.strip().lower()])#.split()])
+        new_row = ' '.join([unk(i) for i in row.strip().split()])
         if random.random()<valid_percent:
             new_valid_f.write(new_row+'\n')
         else:
