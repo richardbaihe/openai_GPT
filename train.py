@@ -16,9 +16,9 @@ tf.logging.set_verbosity(tf.logging.INFO)
 flags = tf.flags
 
 flags.DEFINE_string('save_dir', 'save', 'save path')
-flags.DEFINE_string('checkpoint_name', 'pretrain_small', 'checkpoint folder name')
+flags.DEFINE_string('checkpoint_name', 'pretrain_char', 'checkpoint folder name')
 flags.DEFINE_string('data_dir', 'data', 'data path')
-flags.DEFINE_string('raw_data_name', 'raw.char.small', 'raw data name')
+flags.DEFINE_string('raw_data_name', 'raw.char.toy', 'raw data name')
 # assign a value later
 flags.DEFINE_string('raw_data_path',' ','assign a value later')
 flags.DEFINE_string('train_data_path',' ','assign a value later ')
@@ -48,8 +48,8 @@ flags.DEFINE_bool('pre_load', True, 'pre load or not')
 flags.DEFINE_integer('n_gpu', 1, 'nums of gpu used')
 flags.DEFINE_integer('n_transfer', 12,'')
 flags.DEFINE_float('lm_coef', 0.2, 'language model weight in multi-task training')
-flags.DEFINE_string('bootstrap-host', 'localhost','The hostname or IP of the bootstrapping server')
-flags.DEFINE_integer('bootstrap-port', '22', 'The port of the bootstrapping server')
+flags.DEFINE_string('bootstrap_host', 'localhost','The hostname or IP of the bootstrapping server')
+flags.DEFINE_integer('bootstrap_port', '22', 'The port of the bootstrapping server')
 flags.DEFINE_integer('num_ps', 1, 'number of parameter server')
 
 args = flags.FLAGS
@@ -60,8 +60,8 @@ args.valid_data_path = os.path.join(args.data_dir, args.checkpoint_name, 'dev.' 
 args.vocab_path = os.path.join(args.data_dir, args.checkpoint_name, 'vocab.' + args.char_word)
 args.tfrecord_filename = os.path.join(args.data_dir, args.checkpoint_name, 'tfrecord')
 
-args.model_path = os.path.join(args.save_dir + args.checkpoint_name)
-args.lm_path = os.path.join(args.save_dir + args.checkpoint_name + '_lm')
+args.model_path = os.path.join(args.save_dir , args.checkpoint_name)
+args.lm_path = os.path.join(args.save_dir , args.checkpoint_name )
 
 
 def ccc_train(model,args):
@@ -197,8 +197,8 @@ def ccc_train(model,args):
 
 
 if __name__ == '__main__':
-    preprocess(args)
-    #model = LM_transformer_pretrain(args)
+    #preprocess(args)
+    model = LM_transformer_pretrain(args)
     #model.encode_to_tfrecords(tfrecord_filename=args.tfrecord_filename,origin_filename=args.train_data_path)
-    #ccc_train(model,args)
+    ccc_train(model,args)
 
