@@ -198,7 +198,7 @@ def ccc_train(model,args):
 
 if __name__ == '__main__':
     preprocess(args)
-    model = LM_transformer_pretrain(args)
+    #model = LM_transformer_pretrain(args)
     #model.encode_to_tfrecords(tfrecord_filename=args.tfrecord_filename,origin_filename=args.train_data_path)
-    ccc_train(model,args)
+    #ccc_train(model,args)
 
