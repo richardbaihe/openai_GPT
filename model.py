@@ -15,6 +15,21 @@ import joblib
 import threading
 
 tf.logging.set_verbosity(tf.logging.INFO)
+flags = tf.flags
+
+flags.DEFINE_integer('n_embd', 512, 'embedding size')
+flags.DEFINE_integer('n_head', 8, 'nums of multi-head')
+flags.DEFINE_integer('n_layer', 8, 'nums of layers')
+flags.DEFINE_float('embd_pdrop', 0.1, 'dropout prob of embedding')
+flags.DEFINE_float('attn_pdrop', 0.1, 'dropout prob of attention')
+flags.DEFINE_float('resid_pdrop', 0.1, 'dropout prob of residual')
+flags.DEFINE_float('clf_pdrop', 0.1, 'dropout prob of classify')
+flags.DEFINE_float('l2', 0.01, 'l2 regularization')
+flags.DEFINE_bool('vector_l2', True, 'whether vector L2')
+flags.DEFINE_string('afn', 'gelu', 'activation function')
+
+flags = flags.FLAGS
+
 
 def gelu(x):
     return 0.5*x*(1+tf.tanh(math.sqrt(2/math.pi)*(x+0.044715*tf.pow(x, 3))))
@@ -76,7 +91,7 @@ def _attn(q, k, v, train=False, scale=False):
     w = mask_attn_weights(w)
     w = tf.nn.softmax(w)
 
-    w = dropout(w, attn_pdrop, train)
+    w = dropout(w, flags.attn_pdrop, train)
 
     a = tf.matmul(w, v)
     return a
@@ -123,22 +138,22 @@ def attn(x, scope, n_state, n_head, train=False, scale=False):
         a = _attn(q, k, v, train=train, scale=scale)
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', n_state, 1, train=train)
-        a = dropout(a, resid_pdrop, train)
+        a = dropout(a, flags.resid_pdrop, train)
         return a
 
 def mlp(x, scope, n_state, train=False):
     with tf.variable_scope(scope):
         nx = shape_list(x)[-1]
-        act = act_fns[afn]
+        act = act_fns[flags.afn]
         h = act(conv1d(x, 'c_fc', n_state, 1, train=train))
         h2 = conv1d(h, 'c_proj', nx, 1, train=train)
-        h2 = dropout(h2, resid_pdrop, train)
+        h2 = dropout(h2, flags.resid_pdrop, train)
         return h2
 
 def block(x, scope, train=False, scale=False):
     with tf.variable_scope(scope):
         nx = shape_list(x)[-1]
-        a = attn(x, 'attn', nx, n_head, train=train, scale=scale)
+        a = attn(x, 'attn', nx, flags.n_head, train=train, scale=scale)
         n = norm(x+a, 'ln_1')
         m = mlp(n, 'mlp', nx*4, train=train)
         h = norm(n+m, 'ln_2')
@@ -174,14 +189,14 @@ def client(ip, port):
 
 class LM_transformer_pretrain():
     def __init__(self, args):
-        globals().update(args.__dict__)
-        random.seed(seed)
-        np.random.seed(seed)
-        tf.set_random_seed(seed)
+        #globals().update(args.__dict__)
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        tf.set_random_seed(args.seed)
         # self.ps_hosts = ps_hosts.split(',')
         # self.worker_hosts = worker_hosts.split(',')
-        self.logger = ResultLogger(path=os.path.join(log_dir, '{}.jsonl'.format(desc)), **args.__dict__)
-        self.text_encoder = TextEncoder(encoder_path)
+        #self.logger = ResultLogger(path=os.path.join(log_dir, '{}.jsonl'.format(desc)), **args.__dict__)
+        self.text_encoder = TextEncoder(args.vocab_path)
         self.encoder = self.text_encoder.encoder
         self.n_vocab = len(self.text_encoder.encoder)
         self.encoder['_start_'] = len(self.encoder)
@@ -189,8 +204,9 @@ class LM_transformer_pretrain():
         self.encoder['_end_'] = len(self.encoder)
         self.clf_token = self.encoder['_end_']
         self.n_special = 3
-        self.n_batch_train = n_batch * n_gpu
-        self.n_updates_total = n_step*10000
+        self.n_batch_train = args.n_batch * args.n_gpu
+        self.n_updates_total = args.n_step*10000
+        self.n_ctx = args.n_ctx
 
     def encode_to_tfrecords(self,tfrecord_filename, origin_filename,num_shards=10):
         writers = []
@@ -206,7 +222,7 @@ class LM_transformer_pretrain():
                 tf.logging.info("Generating case %d for %s." % (counter, tfrecord_filename))
             data = encode_dataset(self.text_encoder, pre_train([case.strip()]))[0]
             #sentence = self.transform_roc_tfrecord(data)  # ,length
-            sentence = [[self.encoder['_start_']]+data[0][:n_ctx-2]+[self.encoder['_end_']]]
+            sentence = [[self.encoder['_start_']]+data[0][:self.n_ctx-2]+[self.encoder['_end_']]]
             frame_feature = list(
                 map(lambda id: tf.train.Feature(int64_list=tf.train.Int64List(value=[id])), sentence[0]))
             sequence_example = tf.train.SequenceExample(
@@ -251,55 +267,57 @@ class LM_transformer_pretrain():
         tfrecord_filenames = ["%s-%.5d-of-%.5d" % (tfrecord_filename, shard, 10) for shard in range(10)]
 
         # dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).padded_batch(batch_size,padded_shapes=padded_shapes,drop_remainder=True).shuffle(buffer_size).repeat(num_epochs)
-        dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).apply(tf.contrib.data.padded_batch_and_drop_remainder(batch_size,padded_shapes=padded_shapes)).shuffle(buffer_size).repeat(num_epochs)
+        dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).\
+            apply(tf.contrib.data.padded_batch_and_drop_remainder(batch_size,padded_shapes=padded_shapes)).\
+            shuffle(buffer_size).repeat(num_epochs)
         return dataset.make_one_shot_iterator().get_next()
 
     def transform_roc_tfrecord(self, X1):
         n_batch = len(X1)
-        xmb = np.zeros((n_batch, n_ctx), dtype=np.int32)
+        xmb = np.zeros((n_batch, self.n_ctx), dtype=np.int32)
         length = np.zeros((n_batch), dtype=np.int32)
         start = self.encoder['_start_']
         end = self.encoder['_end_']
-        max_len = n_ctx - 2
+        max_len = self.n_ctx - 2
         for i, x1 in enumerate(X1):
             x12 = [start] + x1[:max_len] + [end]
             l12 = len(x12)
             xmb[i, :l12] = x12
-            length[i] = min(l12,n_ctx)
+            length[i] = min(l12,self.n_ctx)
             #mmb[i, 0, :l12] = 1
         #xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
         return xmb#, length
 
     def transform_roc(self, X1):
         n_batch = len(X1)
-        xmb = np.zeros((n_batch, 1, n_ctx, 2), dtype=np.int32)
-        mmb = np.zeros((n_batch, 1, n_ctx), dtype=np.float32)
+        xmb = np.zeros((n_batch, 1, self.n_ctx, 2), dtype=np.int32)
+        mmb = np.zeros((n_batch, 1, self.n_ctx), dtype=np.float32)
         start = self.encoder['_start_']
         end = self.encoder['_end_']
-        max_len = n_ctx - 2
+        max_len = self.n_ctx - 2
 
         for i, x1 in enumerate(X1):
             x12 = [start] + x1[:max_len] + [end]
             l12 = len(x12)
             xmb[i, 0, :l12, 0] = x12
             mmb[i, 0, :l12] = 1
-        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
+        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + self.n_ctx)
         return xmb, mmb
 
 
     def model(self, X, M,max_len,train=False, reuse=False,num_ps=1):
         with tf.variable_scope('model_lm', reuse=reuse, partitioner=tf.fixed_size_partitioner(num_shards=16)):
-            we = tf.get_variable("we", [self.n_vocab + self.n_special + n_ctx, n_embd],
+            we = tf.get_variable("we", [self.n_vocab + self.n_special + self.n_ctx, flags.n_embd],
                                  initializer=tf.random_normal_initializer(stddev=0.02))
-            we = dropout(we, embd_pdrop, train)
+            we = dropout(we, flags.embd_pdrop, train)
             X = tf.reshape(X, [-1, max_len, 2])
             M = tf.reshape(M, [-1, max_len])
 
             h = embed(X, we)
-            for layer in range(n_layer):
+            for layer in range(flags.n_layer):
                 h = block(h, 'h%d' % layer, train=train, scale=True)
 
-            lm_h = tf.reshape(h[:, :-1], [-1, n_embd])
+            lm_h = tf.reshape(h[:, :-1], [-1, flags.n_embd])
             lm_logits = tf.matmul(lm_h, we, transpose_b=True)
             lm_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=lm_logits,
                                                                        labels=tf.reshape(X[:, 1:, 0], [-1]))
@@ -308,154 +326,154 @@ class LM_transformer_pretrain():
 
             return lm_losses
 
-    def ccc_train(self):
-        # Resolve hostnames and ports of other nodes
-        host, hosts = client(bootstrap_host, bootstrap_port)
-
-        # Create a cluster and identify the job name and task of this node
-        cluster = tf.train.ClusterSpec({
-            'ps': hosts[:num_ps],
-            'worker': hosts[num_ps:]
-        })
-
-        task = hosts.index(host)
-        job_name = ('ps', 'worker')[task >= num_ps]
-        task = cluster.job_tasks(job_name).index(host)
-        tf_config = tf.ConfigProto(allow_soft_placement=True)
-        tf_config.gpu_options.allow_growth = True
-        server = tf.train.Server(cluster, job_name=job_name, task_index=task,config=tf_config)
-
-        if job_name == 'ps':
-            # create a shared queue on the parameter server which is visible on /job:ps/task:%d
-            with tf.device('/job:ps/task:%d' % task):
-                queue = tf.FIFOQueue(cluster.num_tasks('worker'), tf.int32, shared_name='done_queue%d' % task)
-
-            # wait for the queue to be filled
-            with tf.Session(server.target) as sess:
-                for i in range(cluster.num_tasks('worker')):
-                    sess.run(queue.dequeue())
-                    print('ps:%d received "done" from worker:%d' % (task, i))
-                print('ps:%d quitting' % task)
-
-        elif job_name == 'worker':
-            with tf.device(tf.train.replica_device_setter(worker_device='/job:worker/task:%d' % task, cluster=cluster)):
-            # with tf.device(tf.train.replica_device_setter()):
-                global_step = tf.train.get_or_create_global_step()
-
-                sentences = self.batched_data(tfrecord_filename, self.single_example_parser, self.n_batch_train,
-                                            padded_shapes=tf.Dimension(n_ctx), num_epochs=n_iter)
-                sentences = tf.cast(sentences,tf.int32)
-                max_len = tf.shape(sentences)[1]#sentences.get_shape()[1]
-                xmb = tf.reshape(sentences,[self.n_batch_train, 1, max_len, 1])
-                M_train = tf.cast(tf.reshape(tf.sign(xmb), [self.n_batch_train, 1, max_len]),tf.float32)
-                positions = tf.reshape(tf.range(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len),shape=[1, 1, max_len, 1])
-                    #tf.constant(np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len),shape=[1, 1, max_len, 1])
-                positions = tf.tile(positions,[self.n_batch_train,1,1,1])
-                X_train = tf.concat([xmb,positions],axis=3)
-
-                optimizer = tf.train.AdamOptimizer(learning_rate=lr, beta1=b1, beta2=b2, epsilon=e)
-                #gpu_grads = []
-                #gpu_loss = []
-                #gpu_ppl = []
-                #xs = [X_train, M_train]
-                #xs = (tf.split(x, n_gpu, 0) for x in xs)
-                #for i, xs in enumerate(zip(*xs)):
-                #    do_reuse = True if i > 0 else None
-                #    with tf.device(assign_to_gpu(i)), tf.variable_scope(tf.get_variable_scope(), reuse=do_reuse):
-                #        lm_losses = self.model(*xs, train=True,num_ps=num_ps,max_len=max_len)
-                #        train_ppl_single = tf.reduce_mean(math.e**lm_losses)
-                #        train_loss_single = tf.reduce_mean(lm_losses)
-                #        gpu_loss.append(train_loss_single)
-                #        gpu_ppl.append(train_ppl_single)
-                #        raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
-                #        grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
-                #                          raw_grads_and_vars]
-                #        gpu_grads.append(grads_and_vars)
-
-                #train_ppl = tf.reduce_mean(gpu_ppl)
-                #train_loss = tf.reduce_mean(gpu_loss)
-                #grads = average_grads(gpu_grads)
-
-                with tf.variable_scope(tf.get_variable_scope(), reuse=False):
-                    lm_losses = self.model(X_train,M_train, train=True,num_ps=num_ps,max_len=max_len)
-                    train_ppl_single = tf.reduce_mean(math.e**lm_losses)
-                    train_loss_single = tf.reduce_mean(lm_losses)
-                    raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
-                    grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
-                                      raw_grads_and_vars]
-
-                train_ppl = train_ppl_single
-                train_loss = train_loss_single
-                grads = grads_and_vars
-
-                train_op = optimizer.apply_gradients(grads,
-                                                     global_step=global_step)
-
-                saver = tf.train.Saver(max_to_keep=5)
-
-                X = tf.placeholder(tf.int32, [None, 1, n_ctx, 2])
-                M = tf.placeholder(tf.float32, [None, 1, n_ctx])
-                valid_lm_losses = self.model(X, M, train=False, reuse=True,max_len=n_ctx)
-                valid_ppl = tf.reduce_mean(math.e**valid_lm_losses)
-                valid_loss = tf.reduce_mean(valid_lm_losses)
-
-                self.params = find_trainable_variables('model_lm')
-                tf.summary.scalar('train_loss', train_loss)
-                #tf.summary.scalar('valid_loss', valid_loss)
-                tf.summary.scalar('train_ppl', train_ppl)
-                #tf.summary.scalar('valid_ppl', valid_ppl)
-                summary_op = tf.summary.merge_all()
-
-            done_ops = []
-            # create a shared queue on the worker which is visible on /job:ps/task:%d
-            for i in range(cluster.num_tasks('ps')):
-                with tf.device('/job:ps/task:%d' % i):
-                    with tf.name_scope('done_queue'):
-                        done_queue = tf.FIFOQueue(cluster.num_tasks('worker'), tf.int32,
-                                                  shared_name='done_queue' + str(i))
-                        done_ops.append(done_queue.enqueue(task))
-            scaffold = tf.train.Scaffold(saver=saver)
-            summary_hook = tf.train.SummarySaverHook(save_steps=1000, output_dir=save_dir,summary_op=summary_op)
-            hooks = [summary_hook,# tf.train.CheckpointSaverHook(save_secs=600, checkpoint_dir=save_dir, saver=saver),
-                     tf.train.StopAtStepHook(last_step=self.n_updates_total),
-                     tf.train.LoggingTensorHook({'step': global_step, 'train_loss': train_loss, 'ppl':train_ppl}, every_n_iter=10),
-                     tf.train.FinalOpsHook([done_ops])]
-            valid_data = pre_train_valid(valid_dir)
-            vaX1 = encode_dataset(self.text_encoder, pre_train(valid_data))[0]
-            vaX, vaM = self.transform_roc(vaX1)
-            with tf.train.MonitoredTrainingSession(master=server.target,
-                                                   is_chief=(task == 0),
-                                                   hooks=hooks,
-                                                   save_checkpoint_secs=600,
-                                                   checkpoint_dir=save_dir,
-                                                   scaffold=scaffold) as sess:
-                coord = tf.train.Coordinator()
-                threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-                try:
-                    while not coord.should_stop():
-
-                        ppl,loss, _, step = sess.run([train_ppl,train_loss, train_op, global_step])#,options=run_options, run_metadata=run_metadata)
-                        if step % steps_to_validate == 0:
-                            va_cost = []
-                            va_ppl = []
-                            for xm, mm in iter_data((vaX, vaM), n_batch=self.n_batch_train, truncate=False,
-                                                    verbose=True):
-                                res,ppl = sess.run([valid_loss,valid_ppl],
-                                               {X: xm, M: mm})
-                                va_cost.append(np.sum(res))
-                                va_ppl.append(np.sum(ppl))
-                            ps = sess.run(self.params)
-                            tf.logging.info('saving LM params into '+ lm_dir)
-                            joblib.dump(ps, lm_dir + '/model_lm.params', protocol=2)
-                            va_cost = np.average(va_cost)
-                            va_ppl = np.average(va_ppl)
-                            tf.logging.info('=========n_steps:\t%d valid_cost:\t%.3f valid ppl:\t%.3f==========' % (step, va_cost,va_ppl))
-
-                except tf.errors.OutOfRangeError:
-                    print('Epochs Complete!')
-                finally:
-                    coord.request_stop()
-                coord.join(threads)
+    # def ccc_train(self):
+    #     # Resolve hostnames and ports of other nodes
+    #     host, hosts = client(bootstrap_host, bootstrap_port)
+    #
+    #     # Create a cluster and identify the job name and task of this node
+    #     cluster = tf.train.ClusterSpec({
+    #         'ps': hosts[:num_ps],
+    #         'worker': hosts[num_ps:]
+    #     })
+    #
+    #     task = hosts.index(host)
+    #     job_name = ('ps', 'worker')[task >= num_ps]
+    #     task = cluster.job_tasks(job_name).index(host)
+    #     tf_config = tf.ConfigProto(allow_soft_placement=True)
+    #     tf_config.gpu_options.allow_growth = True
+    #     server = tf.train.Server(cluster, job_name=job_name, task_index=task,config=tf_config)
+    #
+    #     if job_name == 'ps':
+    #         # create a shared queue on the parameter server which is visible on /job:ps/task:%d
+    #         with tf.device('/job:ps/task:%d' % task):
+    #             queue = tf.FIFOQueue(cluster.num_tasks('worker'), tf.int32, shared_name='done_queue%d' % task)
+    #
+    #         # wait for the queue to be filled
+    #         with tf.Session(server.target) as sess:
+    #             for i in range(cluster.num_tasks('worker')):
+    #                 sess.run(queue.dequeue())
+    #                 print('ps:%d received "done" from worker:%d' % (task, i))
+    #             print('ps:%d quitting' % task)
+    #
+    #     elif job_name == 'worker':
+    #         with tf.device(tf.train.replica_device_setter(worker_device='/job:worker/task:%d' % task, cluster=cluster)):
+    #         # with tf.device(tf.train.replica_device_setter()):
+    #             global_step = tf.train.get_or_create_global_step()
+    #
+    #             sentences = self.batched_data(tfrecord_filename, self.single_example_parser, self.n_batch_train,
+    #                                         padded_shapes=tf.Dimension(n_ctx), num_epochs=n_iter)
+    #             sentences = tf.cast(sentences,tf.int32)
+    #             max_len = tf.shape(sentences)[1]#sentences.get_shape()[1]
+    #             xmb = tf.reshape(sentences,[self.n_batch_train, 1, max_len, 1])
+    #             M_train = tf.cast(tf.reshape(tf.sign(xmb), [self.n_batch_train, 1, max_len]),tf.float32)
+    #             positions = tf.reshape(tf.range(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len),shape=[1, 1, max_len, 1])
+    #                 #tf.constant(np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + max_len),shape=[1, 1, max_len, 1])
+    #             positions = tf.tile(positions,[self.n_batch_train,1,1,1])
+    #             X_train = tf.concat([xmb,positions],axis=3)
+    #
+    #             optimizer = tf.train.AdamOptimizer(learning_rate=lr, beta1=b1, beta2=b2, epsilon=e)
+    #             #gpu_grads = []
+    #             #gpu_loss = []
+    #             #gpu_ppl = []
+    #             #xs = [X_train, M_train]
+    #             #xs = (tf.split(x, n_gpu, 0) for x in xs)
+    #             #for i, xs in enumerate(zip(*xs)):
+    #             #    do_reuse = True if i > 0 else None
+    #             #    with tf.device(assign_to_gpu(i)), tf.variable_scope(tf.get_variable_scope(), reuse=do_reuse):
+    #             #        lm_losses = self.model(*xs, train=True,num_ps=num_ps,max_len=max_len)
+    #             #        train_ppl_single = tf.reduce_mean(math.e**lm_losses)
+    #             #        train_loss_single = tf.reduce_mean(lm_losses)
+    #             #        gpu_loss.append(train_loss_single)
+    #             #        gpu_ppl.append(train_ppl_single)
+    #             #        raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
+    #             #        grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
+    #             #                          raw_grads_and_vars]
+    #             #        gpu_grads.append(grads_and_vars)
+    #
+    #             #train_ppl = tf.reduce_mean(gpu_ppl)
+    #             #train_loss = tf.reduce_mean(gpu_loss)
+    #             #grads = average_grads(gpu_grads)
+    #
+    #             with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+    #                 lm_losses = self.model(X_train,M_train, train=True,num_ps=num_ps,max_len=max_len)
+    #                 train_ppl_single = tf.reduce_mean(math.e**lm_losses)
+    #                 train_loss_single = tf.reduce_mean(lm_losses)
+    #                 raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
+    #                 grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
+    #                                   raw_grads_and_vars]
+    #
+    #             train_ppl = train_ppl_single
+    #             train_loss = train_loss_single
+    #             grads = grads_and_vars
+    #
+    #             train_op = optimizer.apply_gradients(grads,
+    #                                                  global_step=global_step)
+    #
+    #             saver = tf.train.Saver(max_to_keep=5)
+    #
+    #             X = tf.placeholder(tf.int32, [None, 1, n_ctx, 2])
+    #             M = tf.placeholder(tf.float32, [None, 1, n_ctx])
+    #             valid_lm_losses = self.model(X, M, train=False, reuse=True,max_len=n_ctx)
+    #             valid_ppl = tf.reduce_mean(math.e**valid_lm_losses)
+    #             valid_loss = tf.reduce_mean(valid_lm_losses)
+    #
+    #             self.params = find_trainable_variables('model_lm')
+    #             tf.summary.scalar('train_loss', train_loss)
+    #             #tf.summary.scalar('valid_loss', valid_loss)
+    #             tf.summary.scalar('train_ppl', train_ppl)
+    #             #tf.summary.scalar('valid_ppl', valid_ppl)
+    #             summary_op = tf.summary.merge_all()
+    #
+    #         done_ops = []
+    #         # create a shared queue on the worker which is visible on /job:ps/task:%d
+    #         for i in range(cluster.num_tasks('ps')):
+    #             with tf.device('/job:ps/task:%d' % i):
+    #                 with tf.name_scope('done_queue'):
+    #                     done_queue = tf.FIFOQueue(cluster.num_tasks('worker'), tf.int32,
+    #                                               shared_name='done_queue' + str(i))
+    #                     done_ops.append(done_queue.enqueue(task))
+    #         scaffold = tf.train.Scaffold(saver=saver)
+    #         summary_hook = tf.train.SummarySaverHook(save_steps=1000, output_dir=save_dir,summary_op=summary_op)
+    #         hooks = [summary_hook,# tf.train.CheckpointSaverHook(save_secs=600, checkpoint_dir=save_dir, saver=saver),
+    #                  tf.train.StopAtStepHook(last_step=self.n_updates_total),
+    #                  tf.train.LoggingTensorHook({'step': global_step, 'train_loss': train_loss, 'ppl':train_ppl}, every_n_iter=10),
+    #                  tf.train.FinalOpsHook([done_ops])]
+    #         valid_data = pre_train_valid(valid_dir)
+    #         vaX1 = encode_dataset(self.text_encoder, pre_train(valid_data))[0]
+    #         vaX, vaM = self.transform_roc(vaX1)
+    #         with tf.train.MonitoredTrainingSession(master=server.target,
+    #                                                is_chief=(task == 0),
+    #                                                hooks=hooks,
+    #                                                save_checkpoint_secs=600,
+    #                                                checkpoint_dir=save_dir,
+    #                                                scaffold=scaffold) as sess:
+    #             coord = tf.train.Coordinator()
+    #             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    #             try:
+    #                 while not coord.should_stop():
+    #
+    #                     ppl,loss, _, step = sess.run([train_ppl,train_loss, train_op, global_step])#,options=run_options, run_metadata=run_metadata)
+    #                     if step % steps_to_validate == 0:
+    #                         va_cost = []
+    #                         va_ppl = []
+    #                         for xm, mm in iter_data((vaX, vaM), n_batch=self.n_batch_train, truncate=False,
+    #                                                 verbose=True):
+    #                             res,ppl = sess.run([valid_loss,valid_ppl],
+    #                                            {X: xm, M: mm})
+    #                             va_cost.append(np.sum(res))
+    #                             va_ppl.append(np.sum(ppl))
+    #                         ps = sess.run(self.params)
+    #                         tf.logging.info('saving LM params into '+ lm_dir)
+    #                         joblib.dump(ps, lm_dir + '/model_lm.params', protocol=2)
+    #                         va_cost = np.average(va_cost)
+    #                         va_ppl = np.average(va_ppl)
+    #                         tf.logging.info('=========n_steps:\t%d valid_cost:\t%.3f valid ppl:\t%.3f==========' % (step, va_cost,va_ppl))
+    #
+    #             except tf.errors.OutOfRangeError:
+    #                 print('Epochs Complete!')
+    #             finally:
+    #                 coord.request_stop()
+    #             coord.join(threads)
 
 
 class LM_transformer_similar():
