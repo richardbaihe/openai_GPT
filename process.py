@@ -167,7 +167,8 @@ def get_vocab(data,args):
     return dic,count
 
 def unk(x,vocab):
-    if x!=' ':
+    x = x.strip()
+    if x!='':
         return x if x in vocab.keys() else 'UNK'
     else:
         return ''
