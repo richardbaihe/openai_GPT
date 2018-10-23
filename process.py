@@ -163,7 +163,7 @@ def preprocess_char(args):
         temp_f.write(new_row+'\n')
     temp_f.close()
     for key, f in sorted(c.items(), key=lambda x: x[1], reverse=True):
-        if f < 30:
+        if f < 20:
             continue
         dic[key]=f
         f_voc.write(key + '\n')

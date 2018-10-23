@@ -1,4 +1,4 @@
-import argparse
+import argparse,os
 from process import preprocess_char
 from model import LM_transformer_pretrain
 if __name__ == '__main__':
@@ -7,15 +7,16 @@ if __name__ == '__main__':
     parser.add_argument('--desc', type=str, default='pretrain_small')
     parser.add_argument('--log_dir', type=str, default='log/')
     parser.add_argument('--save_dir', type=str, default='save/')
+    parser.add_argument('--lm_dir', type=str, default='save/pretrained_lm_small')
     parser.add_argument('--raw_data', type=str, default='../chinese_data/all_concat/corpus.char.small')
     parser.add_argument('--data_dir', type=str, default='../chinese_data/pretrain_small/train.char')
     parser.add_argument('--valid_dir', type=str, default='../chinese_data/pretrain_small/dev.char')
     parser.add_argument('--encoder_path', type=str, default='../chinese_data/pretrain_small/char_vocab')
     parser.add_argument('--tfrecord_filename', type=str, default='data/pretrain_small')
 
-    parser.add_argument('--steps_to_validate', type=int, default=5000)
-    parser.add_argument('--n_iter', type=int, default=10)
-    parser.add_argument('--n_step', type=int, default=100)
+    parser.add_argument('--steps_to_validate', type=int, default=1000)
+    parser.add_argument('--n_iter', type=int, default=30)
+    parser.add_argument('--n_step', type=int, default=1000)
     parser.add_argument('--n_batch', type=int, default=32)
     parser.add_argument('--n_vocab', type=int, default=10000)
 
@@ -33,7 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--clf_pdrop', type=float, default=0.1)
     parser.add_argument('--l2', type=float, default=0.01)
     parser.add_argument('--vector_l2', action='store_true')
-    parser.add_argument('--pre_load', type=bool, default=False)
+    parser.add_argument('--pre_load', type=bool, default=True)
     parser.add_argument('--n_gpu', type=int, default=1)
     parser.add_argument('--opt', type=str, default='adam')
     parser.add_argument('--afn', type=str, default='gelu')
@@ -49,8 +50,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_ps', type=int, default=1)
     args = parser.parse_args()
 
+    args.save_dir = os.path.join(args.save_dir + args.desc)
     #preprocess_char(args)
     model = LM_transformer_pretrain(args)
     #model.encode_to_tfrecords(tfrecord_filename=args.tfrecord_filename,origin_filename=args.data_dir)
-
     model.ccc_train()

@@ -1,3 +1,4 @@
-jbsub -require "hname=dccxc008" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=ps --task_index=0 &&
-jbsub -require "hname=dccxc011" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=worker --task_index=0 &&
-jbsub -require "hname=dccxc015" python train.py --ps_hosts=dccxc008.pok.ibm.com:2223 --worker_hosts=dccxc011.pok.ibm.com:2224,dccxc015.pok.ibm.com:2225 --job_name=worker --task_index=1 
+jbsub -mem 8g -proj clf -queue x86_12h -cores 2+1 -out log/log.clf_only python train_clf.py --desc=clf_only --pre_load=False --preprocess=False --lm_coef=0 --n_gpu=1
+jbsub -mem 8g -proj clf -queue x86_12h -cores 2+1 -out log/log.clf_LM python train_clf.py --desc=clf_LM --pre_load=False --preprocess=False --lm_coef=0.5 --n_gpu=1 
+#jbsub -mem 8g -proj clf -queue x86_12h -cores 2+2 -out log/log.clf_LM_pretrain python train_clf.py --desc=clf_LM_pretrain --pre_load=True --preprocess=False --lm_coef=0.5 
+

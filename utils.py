@@ -140,7 +140,6 @@ def assign_to_gpu(gpu=0, ps_dev="/device:CPU:0"):
             return ps_dev
         else:
             return "/gpu:%d" % gpu
-        #return "/gpu:%d" % gpu
     return _assign
 
 def average_grads(tower_grads):

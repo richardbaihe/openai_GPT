@@ -225,20 +225,6 @@ class LM_transformer_pretrain():
 
         return output_files
 
-        # with tf.python_io.TFRecordWriter(tfrecord_filename) as f:
-        #     for line in open(origin_filename, 'r', encoding='utf-8'):
-        #         data = encode_dataset(self.text_encoder, pre_train([line.strip()]))[0]
-        #         sentence = self.transform_roc_tfrecord(data) #,length
-        #         frame_feature = list(
-        #             map(lambda id: tf.train.Feature(int64_list=tf.train.Int64List(value=[id])), sentence[0]))
-        #         example = tf.train.SequenceExample(
-        #             # context=tf.train.Features(feature={
-        #             #     'length': tf.train.Feature(int64_list=tf.train.Int64List(value=length))}),
-        #             feature_lists=tf.train.FeatureLists(feature_list={
-        #                 'sequence': tf.train.FeatureList(feature=frame_feature)
-        #             })
-        #         )
-        #         f.write(example.SerializeToString())
     def single_example_parser(self,serialized_example):
         # context_features = {
         #     "length": tf.FixedLenFeature([], dtype=tf.int64)
@@ -257,28 +243,17 @@ class LM_transformer_pretrain():
 
         sequences = sequence_parsed['sequence']
         return sequences#,lengths
+
     def batched_data(self,tfrecord_filename, single_example_parser, batch_size,padded_shapes, num_epochs=1,
                      buffer_size=1000):
         padded_shapes=tf.Dimension(None)
+
         tfrecord_filenames = ["%s-%.5d-of-%.5d" % (tfrecord_filename, shard, 10) for shard in range(10)]
-        dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).padded_batch(batch_size,padded_shapes=padded_shapes).shuffle(buffer_size).repeat(num_epochs)
+
+        # dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).padded_batch(batch_size,padded_shapes=padded_shapes,drop_remainder=True).shuffle(buffer_size).repeat(num_epochs)
+        dataset = tf.data.TFRecordDataset(tfrecord_filenames).map(single_example_parser).apply(tf.contrib.data.padded_batch_and_drop_remainder(batch_size,padded_shapes=padded_shapes)).shuffle(buffer_size).repeat(num_epochs)
         return dataset.make_one_shot_iterator().get_next()
 
-    def transform_roc(self, X1):
-        n_batch = len(X1)
-        xmb = np.zeros((n_batch, 1, n_ctx, 2), dtype=np.int32)
-        mmb = np.zeros((n_batch, 1, n_ctx), dtype=np.float32)
-        start = self.encoder['_start_']
-        end = self.encoder['_end_']
-        max_len = n_ctx - 2
-
-        for i, x1 in enumerate(X1):
-            x12 = [start] + x1[:max_len] + [end]
-            l12 = len(x12)
-            xmb[i, 0, :l12, 0] = x12
-            mmb[i, 0, :l12] = 1
-        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
-        return xmb, mmb
     def transform_roc_tfrecord(self, X1):
         n_batch = len(X1)
         xmb = np.zeros((n_batch, n_ctx), dtype=np.int32)
@@ -295,14 +270,30 @@ class LM_transformer_pretrain():
         #xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
         return xmb#, length
 
-    def model(self, X, M, train=False, reuse=False,num_ps=1):
+    def transform_roc(self, X1):
+        n_batch = len(X1)
+        xmb = np.zeros((n_batch, 1, n_ctx, 2), dtype=np.int32)
+        mmb = np.zeros((n_batch, 1, n_ctx), dtype=np.float32)
+        start = self.encoder['_start_']
+        end = self.encoder['_end_']
+        max_len = n_ctx - 2
+
+        for i, x1 in enumerate(X1):
+            x12 = [start] + x1[:max_len] + [end]
+            l12 = len(x12)
+            xmb[i, 0, :l12, 0] = x12
+            mmb[i, 0, :l12] = 1
+        xmb[:, :, :, 1] = np.arange(self.n_vocab + self.n_special, self.n_vocab + self.n_special + n_ctx)
+        return xmb, mmb
+
+
+    def model(self, X, M,max_len,train=False, reuse=False,num_ps=1):
         with tf.variable_scope('model_lm', reuse=reuse, partitioner=tf.fixed_size_partitioner(num_shards=16)):
             we = tf.get_variable("we", [self.n_vocab + self.n_special + n_ctx, n_embd],
                                  initializer=tf.random_normal_initializer(stddev=0.02))
             we = dropout(we, embd_pdrop, train)
-
-            X = tf.reshape(X, [-1, n_ctx, 2])
-            M = tf.reshape(M, [-1, n_ctx])
+            X = tf.reshape(X, [-1, max_len, 2])
+            M = tf.reshape(M, [-1, max_len])
 
             h = embed(X, we)
             for layer in range(n_layer):
@@ -348,6 +339,7 @@ class LM_transformer_pretrain():
 
         elif job_name == 'worker':
             with tf.device(tf.train.replica_device_setter(worker_device='/job:worker/task:%d' % task, cluster=cluster)):
+            # with tf.device(tf.train.replica_device_setter()):
                 global_step = tf.train.get_or_create_global_step()
 
                 sentences = self.batched_data(tfrecord_filename, self.single_example_parser, self.n_batch_train,
@@ -362,28 +354,39 @@ class LM_transformer_pretrain():
                 X_train = tf.concat([xmb,positions],axis=3)
 
                 optimizer = tf.train.AdamOptimizer(learning_rate=lr, beta1=b1, beta2=b2, epsilon=e)
-                gpu_grads = []
-                gpu_loss = []
-                gpu_ppl = []
-                xs = [X_train, M_train]
-                xs = (tf.split(x, n_gpu, 0) for x in xs)
-                for i, xs in enumerate(zip(*xs)):
-                    do_reuse = True if i > 0 else None
-                    with tf.device(assign_to_gpu(i)), tf.variable_scope(tf.get_variable_scope(), reuse=do_reuse):
-                        lm_losses = self.model(*xs, train=True,num_ps=num_ps)
-                        train_ppl_single = tf.reduce_mean(math.e**lm_losses)
-                        train_loss_single = tf.reduce_mean(lm_losses)
-                        gpu_loss.append(train_loss_single)
-                        gpu_ppl.append(train_ppl_single)
-                        optimizer = tf.train.AdamOptimizer(learning_rate=lr, beta1=b1, beta2=b2, epsilon=e)
-                        raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
-                        grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
-                                          raw_grads_and_vars]
-                        gpu_grads.append(grads_and_vars)
+                #gpu_grads = []
+                #gpu_loss = []
+                #gpu_ppl = []
+                #xs = [X_train, M_train]
+                #xs = (tf.split(x, n_gpu, 0) for x in xs)
+                #for i, xs in enumerate(zip(*xs)):
+                #    do_reuse = True if i > 0 else None
+                #    with tf.device(assign_to_gpu(i)), tf.variable_scope(tf.get_variable_scope(), reuse=do_reuse):
+                #        lm_losses = self.model(*xs, train=True,num_ps=num_ps,max_len=max_len)
+                #        train_ppl_single = tf.reduce_mean(math.e**lm_losses)
+                #        train_loss_single = tf.reduce_mean(lm_losses)
+                #        gpu_loss.append(train_loss_single)
+                #        gpu_ppl.append(train_ppl_single)
+                #        raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
+                #        grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
+                #                          raw_grads_and_vars]
+                #        gpu_grads.append(grads_and_vars)
 
-                train_ppl = tf.reduce_mean(gpu_ppl)
-                train_loss = tf.reduce_mean(gpu_loss)
-                grads = average_grads(gpu_grads)
+                #train_ppl = tf.reduce_mean(gpu_ppl)
+                #train_loss = tf.reduce_mean(gpu_loss)
+                #grads = average_grads(gpu_grads)
+
+                with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+                    lm_losses = self.model(X_train,M_train, train=True,num_ps=num_ps,max_len=max_len)
+                    train_ppl_single = tf.reduce_mean(math.e**lm_losses)
+                    train_loss_single = tf.reduce_mean(lm_losses)
+                    raw_grads_and_vars = optimizer.compute_gradients(train_loss_single)
+                    grads_and_vars = [(tf.clip_by_global_norm([gv[0]], max_grad_norm)[0][0], gv[1]) for gv in
+                                      raw_grads_and_vars]
+
+                train_ppl = train_ppl_single
+                train_loss = train_loss_single
+                grads = grads_and_vars
 
                 train_op = optimizer.apply_gradients(grads,
                                                      global_step=global_step)
@@ -392,7 +395,7 @@ class LM_transformer_pretrain():
 
                 X = tf.placeholder(tf.int32, [None, 1, n_ctx, 2])
                 M = tf.placeholder(tf.float32, [None, 1, n_ctx])
-                valid_lm_losses = self.model(X, M, train=False, reuse=True)
+                valid_lm_losses = self.model(X, M, train=False, reuse=True,max_len=n_ctx)
                 valid_ppl = tf.reduce_mean(math.e**valid_lm_losses)
                 valid_loss = tf.reduce_mean(valid_lm_losses)
 
@@ -414,8 +417,8 @@ class LM_transformer_pretrain():
             scaffold = tf.train.Scaffold(saver=saver)
             summary_hook = tf.train.SummarySaverHook(save_steps=1000, output_dir=save_dir,summary_op=summary_op)
             hooks = [summary_hook,# tf.train.CheckpointSaverHook(save_secs=600, checkpoint_dir=save_dir, saver=saver),
-                     tf.train.StopAtStepHook(last_step=1000000),
-                     tf.train.LoggingTensorHook({'step': global_step, 'train_loss': train_loss, 'ppl':train_ppl}, every_n_iter=100),
+                     tf.train.StopAtStepHook(last_step=self.n_updates_total),
+                     tf.train.LoggingTensorHook({'step': global_step, 'train_loss': train_loss, 'ppl':train_ppl}, every_n_iter=10),
                      tf.train.FinalOpsHook([done_ops])]
             valid_data = pre_train_valid(valid_dir)
             vaX1 = encode_dataset(self.text_encoder, pre_train(valid_data))[0]
@@ -437,14 +440,13 @@ class LM_transformer_pretrain():
                             va_ppl = []
                             for xm, mm in iter_data((vaX, vaM), n_batch=self.n_batch_train, truncate=False,
                                                     verbose=True):
-
-                                ps = sess.run(self.params)
-                                joblib.dump(ps, save_dir + 'model_lm.params', protocol=2)
                                 res,ppl = sess.run([valid_loss,valid_ppl],
                                                {X: xm, M: mm})
                                 va_cost.append(np.sum(res))
                                 va_ppl.append(np.sum(ppl))
-
+                            ps = sess.run(self.params)
+                            tf.logging.info('saving LM params into '+ lm_dir)
+                            joblib.dump(ps, lm_dir + '/model_lm.params', protocol=2)
                             va_cost = np.average(va_cost)
                             va_ppl = np.average(va_ppl)
                             tf.logging.info('=========n_steps:\t%d valid_cost:\t%.3f valid ppl:\t%.3f==========' % (step, va_cost,va_ppl))
@@ -496,8 +498,8 @@ class LM_transformer_similar():
         return xmb, mmb
 
     def model(self,X, M, Y, train=False, reuse=False):
-        with tf.variable_scope('model_lm', reuse=reuse):
-            we = tf.get_variable("we", [self.n_vocab + self.n_special + n_ctx, n_embd],
+        with tf.variable_scope('model_lm', reuse=reuse, partitioner=tf.fixed_size_partitioner(num_shards=16)):
+            we = tf.get_variable("we", [self.n_vocab + self.n_special + 200, n_embd],
                                  initializer=tf.random_normal_initializer(stddev=0.02))
             we = dropout(we, embd_pdrop, train)
 
@@ -572,7 +574,9 @@ class LM_transformer_similar():
         clf_loss = tf.reduce_mean(clf_losses)
         saver = tf.train.Saver(max_to_keep=5)
         self.params = find_trainable_variables('model_lm')
-
+        if pre_load:
+            restore_op = [p.assign(ip) for p, ip in
+             zip(self.params, joblib.load(lm_dir + '/model_lm.params'))]
         self.eval_mgpu_logits, self.eval_mgpu_clf_losses, self.eval_mgpu_lm_losses = self.mgpu_predict(X_train, M_train, Y_train)
         self.eval_logits, self.eval_clf_losses, self.eval_lm_losses = self.model(X, M, Y, train=False, reuse=True)
         self.eval_clf_loss = tf.reduce_mean(self.eval_clf_losses)
@@ -597,9 +601,6 @@ class LM_transformer_similar():
         n_train = len(trY)
         n_valid = len(vaY)
         self.n_updates_total = (n_train // self.n_batch_train) * n_iter
-
-        n_updates = 0
-        n_epochs = 0
 
         def log():
             def iter_apply(Xs, Ms, Ys):
@@ -627,43 +628,45 @@ class LM_transformer_similar():
             tf.logging.info('%d %d %.3f %.3f %.2f %.2f' % (n_epochs, n_updates, tr_cost, va_cost, tr_f1, va_f1))
 
         scaffold = tf.train.Scaffold(saver=saver)
-        summary_hook = tf.train.SummarySaverHook(save_steps=1000, output_dir=save_dir,summary_op=summary_op)
-        hooks = [summary_hook]
+        log_hook = tf.train.LoggingTensorHook({'step': global_step, 'train_loss': clf_loss},every_n_iter=100)
+        summary_hook = tf.train.SummarySaverHook(save_steps=100, output_dir=save_dir,summary_op=summary_op)
+        hooks = [summary_hook,log_hook]
         tf_config = tf.ConfigProto(allow_soft_placement=True)
         tf_config.gpu_options.allow_growth = True
+
+
+        n_epochs = 0
+
         with tf.train.MonitoredTrainingSession(hooks=hooks,
                                                save_checkpoint_secs=600,
                                                checkpoint_dir=save_dir,
                                                scaffold=scaffold,
                                                config=tf_config) as sess:
-            if preload:
-                sess.run(
-                    [p.assign(ip) for p, ip in
-                     zip(self.params, joblib.load(save_dir+ 'model_lm.params'))])
+            if pre_load:
+                sess.run(restore_op)
 
             for i in range(n_iter):
                 for xmb, mmb, ymb in iter_data((shuffle(trX, trM, trY, random_state=np.random)), n_batch=self.n_batch_train, truncate=True, verbose=True):
-                    cost, _ = sess.run([clf_loss, train_op], {X_train:xmb, M_train:mmb, Y_train:ymb})
-                    n_updates += 1
-                    if n_updates%1000==0 :
+                    cost, _,n_updates = sess.run([clf_loss, train_op,global_step], {X_train:xmb, M_train:mmb, Y_train:ymb})
+                    if n_updates%100==0 :
                         log()
                 n_epochs += 1
                 log()
 
-            teX1, teX2, _ = encode_dataset(self.text_encoder, atec(data_dir))
-            teX, teM = self.transform_roc(teX1, teX2)
+            # teX1, teX2, _ = encode_dataset(self.text_encoder, atec(data_dir))
+            # teX, teM = self.transform_roc(teX1, teX2)
 
-            pred_fn = lambda x: np.argmax(x, 1)
-            logits = []
-            for xmb, mmb in iter_data((teX, teM), n_batch=self.n_batch_train, truncate=False, verbose=True):
-                n = len(xmb)
-                if n == self.n_batch_train:
-                    logits.append(sess.run(self.eval_mgpu_logits, {X_train: xmb, M_train: mmb}))
-                else:
-                    logits.append(sess.run(self.eval_logits, {X: xmb, M: mmb}))
-            logits = np.concatenate(logits, 0)
-            predictions = pred_fn(logits)
-            return predictions
+            # pred_fn = lambda x: np.argmax(x, 1)
+            # logits = []
+            # for xmb, mmb in iter_data((teX, teM), n_batch=self.n_batch_train, truncate=False, verbose=True):
+            #     n = len(xmb)
+            #     if n == self.n_batch_train:
+            #         logits.append(sess.run(self.eval_mgpu_logits, {X_train: xmb, M_train: mmb}))
+            #     else:
+            #         logits.append(sess.run(self.eval_logits, {X: xmb, M: mmb}))
+            # logits = np.concatenate(logits, 0)
+            # predictions = pred_fn(logits)
+            # return predictions
 
     def mgpu_predict(self,*xs):
         gpu_ops = []
