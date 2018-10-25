@@ -1,4 +1,4 @@
-# Langauage model pretraining for NLU
+# Language model pretraining for NLU
 Training with multi-gpu on multi-machines with **CCC** platform.
 
 Examples: 
