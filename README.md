@@ -1,4 +1,4 @@
-# Langauge model pretraining for NLU
+# Langauage model pretraining for NLU
 Training with multi-gpu on multi-machines with **CCC** platform.
 
 Examples: 
