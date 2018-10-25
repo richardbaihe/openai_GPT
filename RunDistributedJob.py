@@ -43,19 +43,18 @@ def main():
             threads[i].start()
         print('Waiting for connections...')
         server.serve_forever()
-
     for thread in threads:
         thread.join()
 
 def submit_job(args, host, port, node_index):
     # ps_nums equal to the half of num_nodes
     num_ps = int(args.num_nodes / 2)
-
     interactive = args.interactive
     n_gpu = args.n_gpu
     # if node_index<num_ps:
     #     jbsub = ['jbsub', '-queue', 'x86_1h', '-cores', '4+1', '-proj', 'distributed_tensorflow_test']
     # else:
+
     jbsub = ['jbsub', '-queue', 'x86_7d', '-mem', '8g','-cores', '2+'+str(n_gpu), '-proj', 'LM_pretrain']
     inter = ['-interactive'] if interactive else []
     pyjob = ['python', args.file, '--bootstrap_host', host, '--bootstrap_port', str(port), '--num_ps', str(num_ps),'--n_gpu',str(n_gpu)]
@@ -64,7 +63,6 @@ def submit_job(args, host, port, node_index):
     i = 0
     for line in job.stdout:
         print(line.strip('\r\n'))
-
 
         # fix the stty settings that `bsub -interactive` destroys
         if i < 20 and i % 3:
