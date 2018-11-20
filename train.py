@@ -15,10 +15,11 @@ tf.logging.set_verbosity(tf.logging.INFO)
 
 flags = tf.flags
 
+flags.DEFINE_bool('preprocess', False, 'pre process for tfrecord files')
 flags.DEFINE_string('save_dir', 'save', 'save path')
-flags.DEFINE_string('checkpoint_name', 'pretrain_char', 'checkpoint folder name')
+flags.DEFINE_string('checkpoint_name', 'pretrain_word', 'checkpoint folder name')
 flags.DEFINE_string('data_dir', 'data', 'data path')
-flags.DEFINE_string('raw_data_name', 'raw.char.toy', 'raw data name')
+flags.DEFINE_string('raw_data_name', 'raw.word.toy', 'raw data name')
 # assign a value later
 flags.DEFINE_string('raw_data_path',' ','assign a value later')
 flags.DEFINE_string('train_data_path',' ','assign a value later ')
@@ -28,11 +29,11 @@ flags.DEFINE_string('tfrecord_filename',' ','assign a value later ')
 flags.DEFINE_string('model_path',' ','assign a value later ')
 flags.DEFINE_string('lm_path',' ','assign a value later ')
 
-flags.DEFINE_string('char_word','char','char or word, which is needed in the preprocess function')
+flags.DEFINE_string('char_word','word','char or word, which is needed in the preprocess function')
 flags.DEFINE_integer('steps_to_validate', 1000, 'validating every n steps')
 flags.DEFINE_integer('n_iter', 30, 'total epochs')
 flags.DEFINE_integer('n_step', 1000, 'total steps')
-flags.DEFINE_integer('n_batch', 32, 'batch size')
+flags.DEFINE_integer('n_batch', 8, 'batch size')
 flags.DEFINE_integer('n_vocab', 10000, 'vocab size')
 flags.DEFINE_integer('n_ctx', 200, 'max length of each sentences')
 flags.DEFINE_integer('seed', 42, 'random seed')
@@ -197,8 +198,12 @@ def ccc_train(model,args):
 
 
 if __name__ == '__main__':
-    #preprocess(args)
-    model = LM_transformer_pretrain(args)
-    #model.encode_to_tfrecords(tfrecord_filename=args.tfrecord_filename,origin_filename=args.train_data_path)
-    ccc_train(model,args)
+    if args.preprocess:
+        preprocess(args)
+        model = LM_transformer_pretrain(args)
+        model.encode_to_tfrecords(tfrecord_filename=args.tfrecord_filename,origin_filename=args.train_data_path)
+        print('preprocess finished')
+    else:
+        model = LM_transformer_pretrain(args)
+        ccc_train(model,args)
 
