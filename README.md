@@ -1,7 +1,8 @@
 # OpenAI-GPT
 
 Language model pretraining for NLU with [openai_gpt](https://s3-us-west-2.amazonaws.com/openai-assets/research-covers/language-unsupervised/language_understanding_paper.pdf). 
-Note: coded of pretraining are published in this repository, while the pre-trained models are private and cannot be published on my own desire. You can train your own model with your GPU Cluster and monolingual data.
+
+Note: codes of pretraining are published in this repository, while the pre-trained models are private and cannot be published on my own desire. You can train your own model with your GPU Cluster and monolingual data.
 
 ## 1. Environment
 
