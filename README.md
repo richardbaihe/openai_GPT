@@ -1,6 +1,7 @@
 # OpenAI-GPT
 
 Language model pretraining for NLU with [openai_gpt](https://s3-us-west-2.amazonaws.com/openai-assets/research-covers/language-unsupervised/language_understanding_paper.pdf). 
+Note: coded of pretraining are published in this repository, while the pre-trained models are private and cannot be published on my own desire. You can train your own model with your GPU Cluster and monolingual data.
 
 ## 1. Environment
 
@@ -12,7 +13,6 @@ tensorflow-gpu 1.9.0
 
 ## 2. Data
 
-/dccstor/jinfeng_nlp/chinese_data/original_data
 
 ```
 Wikipedia
@@ -97,7 +97,7 @@ The params related to RunDistributedJob are as follow:
 -G int 'number of GPUs required for each node'
 ```
 
-**Note**: the num of ps(parameter sever) is N/2 by default, you can config it by edit related codes in RunDistributedJob.py.
+**Note**: the num of ps(parameter sever) is N/2 by default, you can config it by editing related codes in RunDistributedJob.py.
 
 ## 4. Tips for CCC Platform
 
